@@ -1,0 +1,55 @@
+{
+  "_license": "SPDX-License-Identifier: MIT / Copyright (c) 2026 David Malcolm / SPDX-FileContributor: Claude Opus 5 (Anthropic), AI assistant",
+
+  "_comment": [
+    "Where the compilers and suite checkouts live.",
+    "Values may use $VAR, ${VAR} and ~, so this file can be shared between",
+    "machines.  Override with --config PATH or $GAB_CONFIG.",
+    "",
+    "A toolchain is either {'cc': '/path/to/gcc'} for an installed compiler,",
+    "or {'build_dir': '.../build/gcc'} for an uninstalled build, which is",
+    "driven as `xgcc -B<build_dir>/`.  'src_dir' is optional and recorded",
+    "for provenance.  'extra_args' and 'env' are appended if present.",
+    "",
+    "A suite entry's key names it in reports.  The adapter defaults to",
+    "that key; set 'adapter' explicitly to configure one adapter twice,",
+    "e.g. two BenchProctor releases side by side:",
+    "  'benchproctor-c-prev': {'path': '...', 'adapter': 'benchproctor-c',",
+    "                          'version': '2026.11.19.1'}",
+    "",
+    "`gab run -s all` runs every suite listed here, writing a parent",
+    "directory with one ordinary run directory per suite."
+  ],
+
+  "toolchains": {
+    "system": {
+      "cc": "/usr/bin/gcc",
+      "description": "Fedora system compiler (GCC 16)"
+    },
+    "copr": {
+      "cc": "/opt/gcc-latest/bin/gcc",
+      "description": "copr build of GCC trunk"
+    },
+    "pristine": {
+      "build_dir": "${HOME}/coding/gcc-newgit-pristine/build/gcc",
+      "src_dir": "${HOME}/coding/gcc-newgit-pristine/src",
+      "description": "unmodified trunk checkout+build (baseline)"
+    },
+    "symbolic": {
+      "build_dir": "${HOME}/coding/gcc-newgit-symbolic-value-rewrite/build/gcc",
+      "src_dir": "${HOME}/coding/gcc-newgit-symbolic-value-rewrite/src",
+      "description": "main development tree: analyzer symbolic value rewrite"
+    }
+  },
+
+  "suites": {
+    "benchproctor-c": {
+      "path": "${HOME}/coding/BenchProctor"
+    },
+    "castle-c250": {
+      "path": "${HOME}/coding/CASTLE-Benchmark"
+    }
+  },
+
+  "runs_dir": "runs"
+}

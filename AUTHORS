@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 David Malcolm
+
+Authors and contributors
+========================
+
+David Malcolm <dmalcolm@redhat.com>
+    Author and maintainer.  Design, direction, review, and the GCC
+    domain knowledge the whole thing rests on.
+
+
+AI assistance
+-------------
+
+Much of the implementation in this repository was written by Claude
+Opus 5 (Anthropic) in interactive sessions, working from David
+Malcolm's design, corrections and review.  This is recorded rather than
+glossed over: the project is intended to validate a compiler, so how
+its own code came about is something a reader should be able to see.
+
+Individual files we jointly produced carry an SPDX tag:
+
+    SPDX-FileContributor: Claude Opus 5 (Anthropic), AI assistant
+
+Commits made with AI assistance should carry a trailer:
+
+    Assisted-by: Claude Opus 5 <noreply@anthropic.com>
+
+Responsibility for the contents is the maintainer's, not the model's.
+Everything here was reviewed by a human before being committed, and
+several of the model's early conclusions were wrong and corrected in
+review -- see the git history and TODO.md.
+
+
+Third-party material
+--------------------
+
+No third-party benchmark code is vendored here; the suites are
+referenced by path from config.json and remain under their own
+licences.  See CITATIONS.md for how to credit them, and LICENSE for the
+terms covering this harness.

@@ -1,0 +1,6 @@
+*~
+__pycache__/
+*.pyc
+runs/
+# Local scratch notes: investigation checkpoints not meant for publication.
+NOTES-local*.md
