@@ -49,6 +49,9 @@ location = {Limassol, Cyprus}
 }
 ```
 
+GCC analyzer improvements driven by this suite are tracked in
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=128964
+
 ### BenchProctor
 
 Apache-2.0 licensed; the C test sources carry
