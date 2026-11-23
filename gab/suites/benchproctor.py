@@ -34,6 +34,16 @@ COMPILE_ARGS = (
 )
 
 
+#: Categories with no -fanalyzer coverage: injection, crypto and
+#: randomness weaknesses, which are outside a C memory-safety
+#: analyzer's remit.  This is the same list the maintainer has been
+#: passing to BenchProctor's own scorer as --skip-categories.
+OUT_OF_SCOPE = (
+    "cmdi", "ldapi", "pathtraver", "sqli", "ssrf",
+    "weakcipher", "weakhash", "weakrand", "xpathi", "xxe",
+)
+
+
 @register
 class BenchProctorC(Suite):
     name = "benchproctor-c"
@@ -48,6 +58,9 @@ class BenchProctorC(Suite):
                 f"{self.name}: expected {self.SUBDIR} under {self.root}"
             )
         self.csv_path = self._find_csv()
+
+    def out_of_scope_categories(self) -> List[str]:
+        return list(OUT_OF_SCOPE)
 
     def available_versions(self) -> List[str]:
         return [

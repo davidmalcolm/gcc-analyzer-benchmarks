@@ -1063,3 +1063,190 @@ class TestHTMLShorthandAndSummary(CLITestCase):
         # A zero count is neither tinted nor linked -- nothing to visit.
         self.assertIn('<span class="muted">0</span>', out)
         self.assert_valid_html(out)
+
+
+class TestFailuresCommand(CLITestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.run_dir = cls.tmp / "fail-run"
+        run_cli("--config", str(cls.config), "run", "-t", "stub", "-s",
+                "synthetic", "-o", str(cls.run_dir), "--force", "-q")
+
+    def test_text_groups_by_category(self):
+        code, out, _ = self.gab("failures", str(self.run_dir))
+        self.assertEqual(code, 0)
+        # The fixture has 1 FP (clean-noisy) and 2 FN under path+1.
+        self.assertIn("1 false positives", out)
+        self.assertIn("2 false negatives", out)
+        self.assertIn("clean-noisy", out)
+        self.assertIn("miss-silent", out)
+        # True positives must not be listed.
+        self.assertNotIn("hit-exact", out)
+
+    def test_kind_filter(self):
+        _, out, _ = self.gab("failures", str(self.run_dir), "-k", "fp")
+        self.assertIn("clean-noisy", out)
+        self.assertNotIn("miss-silent", out)
+        _, out, _ = self.gab("failures", str(self.run_dir), "-k", "fn")
+        self.assertNotIn("clean-noisy", out)
+        self.assertIn("miss-silent", out)
+
+    def test_verbose_shows_what_was_reported(self):
+        _, out, _ = self.gab("failures", str(self.run_dir), "-v")
+        self.assertIn("reported nothing", out)
+        self.assertIn("-Wanalyzer-", out)
+
+    def test_matcher_changes_the_set(self):
+        _, strict, _ = self.gab("failures", str(self.run_dir), "-m", "line",
+                                "--json")
+        _, loose, _ = self.gab("failures", str(self.run_dir), "-m", "file",
+                               "--json")
+        self.assertGreater(json.loads(strict)["counts"]["FN"],
+                           json.loads(loose)["counts"]["FN"])
+
+    def test_json(self):
+        code, out, _ = self.gab("failures", str(self.run_dir), "--json")
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["counts"]["FP"], 1)
+        entries = [e for v in data["by_category"].values() for e in v]
+        fn = next(e for e in entries if e["name"] == "miss-silent")
+        self.assertEqual(fn["outcome"], "FN")
+        self.assertEqual(fn["lines"], [5])
+        self.assertTrue(fn["repro"])
+
+    def test_html(self):
+        code, out, _ = self.gab("failures", str(self.run_dir), "--html")
+        self.assertEqual(code, 0)
+        self.assert_valid_html(out)
+        self.assertIn("By category", out)
+
+    def test_category_filter(self):
+        _, out, _ = self.gab("failures", str(self.run_dir),
+                             "--category", "null", "--json")
+        cats = set(json.loads(out)["by_category"])
+        self.assertTrue(cats <= {"null"}, cats)
+
+    def test_clean_run_says_so(self):
+        run = write_run(self.tmp / "fail-clean",
+                        [make_record("t", lines=(5,),
+                                     findings=[make_finding(line=5)])])
+        _, out, _ = self.gab("failures", str(run))
+        self.assertIn("no false results", out)
+
+
+class TestCastleScoreInCLI(CLITestCase):
+    def test_not_shown_for_a_non_castle_suite(self):
+        run = self.tmp / "cs-plain"
+        self.gab("run", "-t", "stub", "-s", "synthetic", "-o", str(run),
+                 "--force", "-q")
+        _, out, _ = self.gab("score", str(run))
+        self.assertNotIn("CASTLE Score", out)
+
+    def test_opt_in_for_any_suite(self):
+        run = self.tmp / "cs-optin"
+        self.gab("run", "-t", "stub", "-s", "synthetic", "-o", str(run),
+                 "--force", "-q")
+        _, out, _ = self.gab("score", str(run), "--castle-score")
+        self.assertIn("CASTLE Score", out)
+
+    def test_shown_automatically_for_the_castle_adapter(self):
+        run = write_run(self.tmp / "cs-castle",
+                        [make_record("t", cwe=476, lines=(5,),
+                                     findings=[make_finding(cwe=476,
+                                                            line=5)])],
+                        suite_name="castle-c250")
+        import json as _json
+        m = _json.loads((run / "run.json").read_text())
+        m["suite"]["adapter"] = "castle-c250"
+        (run / "run.json").write_text(_json.dumps(m))
+        _, out, _ = self.gab("score", str(run))
+        self.assertIn("CASTLE Score: 6", out)
+
+    def test_json_carries_the_castle_score(self):
+        run = self.tmp / "cs-json"
+        self.gab("run", "-t", "stub", "-s", "synthetic", "-o", str(run),
+                 "--force", "-q")
+        _, out, _ = self.gab("score", str(run), "--castle-score", "--json")
+        cs = json.loads(out)["castle_score"]
+        self.assertIn("score", cs)
+        self.assertEqual(cs["detect"], "cwe")
+        self.assertIn("doi:10.1007", cs["reference"])
+
+    def test_detection_rule_is_selectable(self):
+        """Right line, different CWE -- the CASTLE-253 situation, where
+        GCC reports CWE-690 against a ground truth of CWE-253."""
+        run = write_run(self.tmp / "cs-rule",
+                        [make_record("t", cwe=253, lines=(5,),
+                                     findings=[make_finding(cwe=690,
+                                                            line=5)])])
+        _, a, _ = self.gab("score", str(run), "--castle-score", "--json")
+        _, b, _ = self.gab("score", str(run), "--castle-score",
+                           "--castle-detect", "path+1", "--json")
+        # The paper's rule calls this a miss and charges for the finding;
+        # a position-based rule credits it.
+        self.assertEqual(json.loads(a)["castle_score"]["score"], -1)
+        self.assertEqual(json.loads(b)["castle_score"]["score"], 5)
+
+
+class TestFailuresDefaultScope(CLITestCase):
+    """Out-of-scope categories are hidden in `failures` by default."""
+
+    def _run_with_scope(self, out_of_scope):
+        run = write_run(
+            self.tmp / f"scope-{'-'.join(out_of_scope) or 'none'}",
+            [make_record("inscope", category="leak", lines=(5,)),
+             make_record("outscope", category="sqli", lines=(5,))])
+        m = json.loads((run / "run.json").read_text())
+        m["suite"]["out_of_scope_categories"] = list(out_of_scope)
+        (run / "run.json").write_text(json.dumps(m))
+        return run
+
+    def test_hidden_by_default(self):
+        run = self._run_with_scope(["sqli"])
+        _, out, _ = self.gab("failures", str(run))
+        self.assertIn("inscope", out)
+        self.assertNotIn("outscope", out)
+        self.assertIn("hidden", out)
+        self.assertIn("--all-categories", out)
+
+    def test_all_categories_includes_them(self):
+        run = self._run_with_scope(["sqli"])
+        _, out, _ = self.gab("failures", str(run), "--all-categories")
+        self.assertIn("outscope", out)
+
+    def test_explicit_category_overrides_the_default(self):
+        run = self._run_with_scope(["sqli"])
+        _, out, _ = self.gab("failures", str(run), "--category", "sqli")
+        self.assertIn("outscope", out)
+
+    def test_json_reports_what_was_hidden(self):
+        run = self._run_with_scope(["sqli"])
+        _, out, _ = self.gab("failures", str(run), "--json")
+        self.assertEqual(json.loads(out)["hidden_categories"], ["sqli"])
+
+    def test_no_scope_declared_hides_nothing(self):
+        run = self._run_with_scope([])
+        _, out, _ = self.gab("failures", str(run))
+        self.assertIn("outscope", out)
+
+    def test_score_does_not_hide_anything(self):
+        """Scoring must stay over the full set unless asked otherwise:
+        a silently narrowed score would be misleading."""
+        run = self._run_with_scope(["sqli"])
+        _, out, _ = self.gab("score", str(run), "--json")
+        self.assertIn("sqli", json.loads(out)["by_category"])
+
+
+class TestBenchProctorScope(unittest.TestCase):
+    def test_adapter_declares_the_injection_categories(self):
+        from gab.suites.benchproctor import OUT_OF_SCOPE, BenchProctorC
+        self.assertIn("sqli", OUT_OF_SCOPE)
+        self.assertIn("weakcipher", OUT_OF_SCOPE)
+        self.assertNotIn("null_deref", OUT_OF_SCOPE)
+        self.assertEqual(len(OUT_OF_SCOPE), 10)
+
+    def test_castle_declares_nothing_out_of_scope(self):
+        from gab.suites.castle import CastleC250
+        self.assertEqual(CastleC250.out_of_scope_categories(None), [])

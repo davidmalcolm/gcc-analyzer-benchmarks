@@ -147,6 +147,8 @@ class DiffReport:
     score_after: Optional["Report"] = None
     suite_before: dict = field(default_factory=dict)
     suite_after: dict = field(default_factory=dict)
+    castle_before: Optional[dict] = None
+    castle_after: Optional[dict] = None
     rss_baseline_ratio: float = 1.0
     """Median peak-RSS ratio across all shared tests: the systematic
     difference in footprint between the two compilers.  `resources`
@@ -229,6 +231,27 @@ class DiffReport:
             })
         return out
 
+    def castle_delta(self) -> Optional[dict]:
+        """Movement in the CASTLE Score, when the suite is CASTLE.
+
+        Reported separately from the main scoring table because it is a
+        different question: the CASTLE Score is CWE-identity based and
+        charges per extra finding, so it can move in the opposite
+        direction to recall.
+        """
+        if not (self.castle_before and self.castle_after):
+            return None
+        b = self.castle_before["score"]
+        a = self.castle_after["score"]
+        return {
+            "before": b, "after": a, "delta": a - b,
+            "detect": self.castle_before.get("detect", "cwe"),
+            "direction": ("better" if a > b
+                          else "worse" if a < b else "same"),
+            "counts_before": self.castle_before.get("counts", {}),
+            "counts_after": self.castle_after.get("counts", {}),
+        }
+
     def macro_delta(self) -> Optional[dict]:
         if not (self.score_before and self.score_after):
             return None
@@ -295,6 +318,7 @@ class DiffReport:
                 "deltas": self.score_deltas(),
                 "by_category": self.category_score_deltas(),
                 "category_averaged": self.macro_delta(),
+            "castle": self.castle_delta(),
             },
             "resources": {
                 "before": self.totals_before,
@@ -437,6 +461,7 @@ def diff_runs(
     resource_threshold: float = 1.5,
     categories: Optional[Sequence[str]] = None,
     skip_categories: Optional[Sequence[str]] = None,
+    castle_detect: Optional[str] = None,
 ) -> DiffReport:
     matcher = MATCHERS[matcher_name]
 
@@ -507,8 +532,23 @@ def diff_runs(
     score_after = score([r for r in records_after if r["name"] in shared_set],
                         matcher_name, **kw)
 
+    castle_b = castle_a = None
+    suite_meta = manifest_before.get("suite") or {}
+    adapter = suite_meta.get("adapter") or suite_meta.get("name")
+    if adapter == "castle-c250":
+        from gab.castle_score import castle_score as _cs
+        detect = castle_detect or "cwe"
+        castle_b = dict(_cs([r for r in records_before
+                             if r["name"] in shared_set], detect).as_dict(),
+                        detect=detect)
+        castle_a = dict(_cs([r for r in records_after
+                             if r["name"] in shared_set], detect).as_dict(),
+                        detect=detect)
+
     errors, warnings = check_compatible(manifest_before, manifest_after)
     return DiffReport(
+        castle_before=castle_b,
+        castle_after=castle_a,
         score_before=score_before,
         score_after=score_after,
         suite_before=manifest_before.get("suite") or {},

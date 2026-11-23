@@ -27,9 +27,13 @@ https://github.com/CASTLE-Benchmark/CASTLE-Benchmark
 Dataset version 1.2, dated 2025-03-13: 250 tests, 150 vulnerable,
 25 CWEs.
 
-The paper also defines the **CASTLE Score**, which `gab` does not yet
-implement -- the repository ships the dataset but no scorer, so the
-formula has to come from the paper.  Preprint: https://arxiv.org/abs/2503.09433
+The paper also defines the **CASTLE Score**, implemented in
+`gab/castle_score.py` from section 3.3 of the preprint
+(https://arxiv.org/abs/2503.09433), since the repository ships the
+dataset but no scorer.  Note that it is a reimplementation from the
+paper, not a port of reference code, and that our numbers for GCC do
+not currently reproduce the paper's -- see TODO.md for the open
+questions about how their evaluation counted findings.
 
 ```bibtex
 @inproceedings{castle2025dubniczky,

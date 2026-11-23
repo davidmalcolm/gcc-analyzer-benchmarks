@@ -62,11 +62,35 @@ Near-term
   bot-protection: fetching the HTML fails, but the REST endpoint
   `https://gcc.gnu.org/bugzilla/rest/bug/<id>/comment` works.
 
-* **The CASTLE Score.**  Not implemented -- the CASTLE repo ships no
-  scorer, so the formula has to come from the paper (arXiv 2503.09433),
-  and guessing at it would be worse than leaving it out.  BenchProctor's
-  category-averaged TPR-FPR *is* implemented, as `score` in the
-  category-averaged line, and cross-checked against their scorer.
+* **The CASTLE Score is implemented** (gab/castle_score.py, from
+  section 3.3 of the paper), but our number does not reproduce the
+  paper's.  They report 559 for GCC 13.3.0 with TP 41 / TN 76 / FP 93;
+  we get 320 for GCC 16 under the paper's CWE rule, with 25 detected
+  and only 6 clean files disturbed.  Worth resolving before quoting
+  either number:
+
+  - Their TP/TN/FP/FN sum to more than 250 for most tools, so their FP
+    column counts individual findings, not files.
+  - **They counted every GCC warning, not just `-Wanalyzer-*`.**
+    Confirmed: re-running CASTLE with `-Wall -Wextra` and counting all
+    diagnostics leaves exactly 76 of the 100 clean files quiet, which
+    is the paper's TN=76 to the test.  None of those extra warnings
+    carry a CWE (37 `-Wunused-parameter`, 24 `-Wsign-compare`, ...),
+    so under the paper's own CWE rule they can only ever subtract
+    points -- which makes their TP=41 harder to explain, not easier,
+    and points back at the unspecified evaluation step below.
+    `gab` filters to `-Wanalyzer-*`, so its scores are unaffected by
+    `-Wall -Wextra`; this is a difference in what is being measured,
+    not a bug on either side.  Worth raising with the CASTLE authors:
+    their GCC row arguably scores GCC's whole warning output rather
+    than `-fanalyzer`.
+  - The paper states "v_i in t(d_i)" but never operationalises it;
+    their repo describes evaluating findings as a separate manual step,
+    so the published numbers may rest on human judgement our CWE
+    equality rule cannot reproduce.
+
+  BenchProctor's category-averaged TPR-FPR is also implemented and
+  *does* agree with their scorer exactly.
 
 * Add a `--fail-on` selector to `gab diff` so a bisection script can say
   which property it is bisecting for (any regression / new crash only /
@@ -78,12 +102,14 @@ Near-term
   exits 1 when any were excluded.  Check that this is the behaviour you
   want from a bisection script before relying on it.
 
-* `gab score` and `gab diff` on a group accept `--match` and the
-  category filters, but apply them uniformly to every suite.  The
-  natural scope differs per suite -- BenchProctor wants ten categories
-  skipped, CASTLE wants none -- so a per-suite default scope, probably
-  declared in config next to the suite, would stop that having to be
-  retyped on every invocation.
+* Suites now declare `out_of_scope_categories()` (BenchProctor: the
+  ten injection/crypto categories; CASTLE: none), recorded in each run
+  manifest so run directories stay self-contained.  `gab failures`
+  honours it by default.  `gab score` and `gab diff` deliberately do
+  not -- a silently narrowed score would mislead, and comparability
+  with published numbers depends on stating the scope -- so those
+  still need explicit `--skip-category`.  Revisit if that proves
+  tedious in practice.
 
 * Run the 4 toolchains x 2 suites baseline matrix.  Never done; would
   establish whether `symbolic` moves any result against `pristine`, and

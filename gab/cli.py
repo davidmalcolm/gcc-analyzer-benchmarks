@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from gab import __version__, diff, htmlout, scoring
+from gab.castle_score import castle_score
 from gab.config import (expand, load_config, suite_adapter,
                         suite_options, suite_root)
 from gab.term import make_palette
@@ -439,6 +440,27 @@ def _pct(x) -> str:
     return "   n/a" if x is None else f"{x * 100:5.1f}%"
 
 
+def _castle_score_for(manifest: dict, records, args) -> Optional[dict]:
+    """The CASTLE Score, when it applies.
+
+    Only computed for the CASTLE adapter: it is that benchmark's own
+    metric, with CWE ranks specific to that dataset, so reporting it
+    for any other suite would be meaningless.
+    """
+    suite = manifest.get("suite") or {}
+    adapter = suite.get("adapter") or suite.get("name")
+    if adapter != "castle-c250" and not getattr(args, "castle_score", False):
+        return None
+    detect = getattr(args, "castle_detect", None) or "cwe"
+    try:
+        result = castle_score(records, detect)
+    except KeyError as e:
+        _die(str(e))
+    out = result.as_dict()
+    out["detect"] = detect
+    return out
+
+
 def cmd_score(args) -> int:
     run_dir = Path(expand(args.run_dir))
     if is_group(run_dir):
@@ -531,6 +553,9 @@ def _score_one(args, run_dir: Path) -> int:
 
     if args.json:
         out = report.as_dict()
+        cs = _castle_score_for(manifest, records, args)
+        if cs:
+            out["castle_score"] = cs
         out["run"] = {
             "dir": str(run_dir),
             "toolchain": manifest.get("toolchain", {}).get("name"),
@@ -575,6 +600,19 @@ def _score_one(args, run_dir: Path) -> int:
     macro_score = "n/a" if m["score"] is None else f"{m['score']:+.3f}"
     print(f"  category-averaged over {m['n_categories']} categories: "
           f"TPR {_pct(m['tpr'])}  FPR {_pct(m['fpr'])}  score {macro_score}")
+
+    cs = _castle_score_for(manifest, records, args)
+    if cs:
+        print(f"\n  CASTLE Score: {cs['score']}  "
+              f"(detection rule: {cs['detect']})")
+        counts = cs["counts"]
+        print(f"    {counts.get('detected', 0)} detected, "
+              f"{counts.get('clean-and-quiet', 0)} clean and quiet, "
+              f"{counts.get('missed-or-wrong', 0)} missed or wrong")
+        if cs["detect"] == "cwe":
+            print(make_palette(args.color).dim(
+                "    per Dubniczky et al. TASE 2025 s3.3; requires the "
+                "reported CWE to equal ground truth"))
 
     pal = make_palette(args.color)
     if c.excluded:
@@ -737,7 +775,9 @@ def _diff_one(args, before_dir: Path, after_dir: Path,
     report = diff.diff_runs(mb, rb, ma, ra, args.match,
                             resource_threshold=args.resource_threshold,
                             categories=args.category,
-                            skip_categories=args.skip_category)
+                            skip_categories=args.skip_category,
+                            castle_detect=getattr(args, "castle_detect",
+                                                  None))
     perf_caveats = diff.warnings_for(report.warnings, "perf")
     result_caveats = diff.warnings_for(report.warnings, "results")
 
@@ -876,6 +916,22 @@ def _render_diff_text(args, report, mb, ma, perf_caveats, result_caveats,
             pad = " " * max(0, 10 - len(change))
             print(f"  {d['metric']:<10} {fmt(d['before']):>9} "
                   f"{fmt(d['after']):>9} {pad}{tinted}")
+        cd = report.castle_delta()
+        if cd:
+            change = _signed(cd["delta"], False)
+            tinted = (c.good(change) if cd["direction"] == "better"
+                      else c.bad(change) if cd["direction"] == "worse"
+                      else change)
+            pad = " " * max(0, 10 - len(change))
+            print(f"  {'CASTLE':<10} {cd['before']:>9} {cd['after']:>9} "
+                  f"{pad}{tinted}")
+            cb, ca = cd["counts_before"], cd["counts_after"]
+            moved = [k for k in set(cb) | set(ca)
+                     if cb.get(k, 0) != ca.get(k, 0)]
+            if moved:
+                bits = ", ".join(f"{k} {cb.get(k, 0)}->{ca.get(k, 0)}"
+                                 for k in sorted(moved))
+                print(c.dim(f"             ({bits}; rule: {cd['detect']})"))
         md = report.macro_delta()
         if md:
             change = _signed(md["delta"], False)
@@ -935,6 +991,149 @@ def _render_diff_text(args, report, mb, ma, perf_caveats, result_caveats,
         print(c.alarm(f"!! {len(report.regressed)} regression(s), "
                       f"{len(report.new_crashes)} new crash(es)"))
     return 0 if report.clean else 1
+
+
+def _collect_failures(records, matcher_name, categories, skip_categories):
+    """Group a run's false results by category.
+
+    False positives and false negatives are the two shapes of "the
+    analyzer could do better here", and they want different detail:
+    for an FP you need to see what it wrongly said, for an FN what it
+    should have found and where.
+    """
+    report = scoring.score(records, matcher_name, categories,
+                           skip_categories)
+    by_name = {r["name"]: r for r in records}
+    groups = {}
+    for v in report.verdicts:
+        if v.outcome not in ("FP", "FN"):
+            continue
+        rec = by_name.get(v.name, {})
+        gt = rec.get("ground_truth") or {}
+        entry = {
+            "name": v.name,
+            "outcome": v.outcome,
+            "category": v.category,
+            "cwe": gt.get("cwe"),
+            "lines": gt.get("lines") or [],
+            "source": rec.get("source"),
+            "sarif": rec.get("sarif"),
+            "repro": rec.get("argv") or [],
+            "findings": [
+                {"rule": f.get("rule"), "line": f.get("line"),
+                 "cwes": f.get("cwes"), "message": f.get("message")}
+                for f in scoring.analyzer_findings(rec)
+            ],
+        }
+        groups.setdefault(v.category or "(uncategorised)", []).append(entry)
+    for entries in groups.values():
+        entries.sort(key=lambda e: (e["outcome"], e["name"]))
+    return report, dict(sorted(groups.items()))
+
+
+def cmd_failures(args) -> int:
+    run_dir = Path(expand(args.run_dir))
+    if is_group(run_dir):
+        _, members = load_group(run_dir)
+        worst = 0
+        for suite_name, child in members:
+            if not args.json:
+                print(make_palette(args.color).head(f"=== {suite_name}"))
+            worst = max(worst, _failures_one(args, child))
+            if not args.json:
+                print()
+        return worst
+    return _failures_one(args, run_dir)
+
+
+def _failures_one(args, run_dir: Path) -> int:
+    manifest, records = load_run(run_dir)
+
+    # Categories the analyzer does not attempt are not improvement
+    # areas, so they are out of the way by default here (unlike in
+    # `score`, where hiding tests would distort the number).
+    skip = list(args.skip_category or [])
+    out_of_scope = (manifest.get("suite") or {}).get(
+        "out_of_scope_categories") or []
+    hidden = []
+    if out_of_scope and not args.all_categories and not args.category:
+        hidden = [c for c in out_of_scope if c not in skip]
+        skip += hidden
+
+    try:
+        report, groups = _collect_failures(records, args.match,
+                                           args.category, skip)
+    except KeyError as e:
+        _die(str(e))
+
+    wanted = {k.upper() for k in (args.kind or ["fp", "fn"])}
+    groups = {
+        cat: [e for e in entries if e["outcome"] in wanted]
+        for cat, entries in groups.items()
+    }
+    groups = {k: v for k, v in groups.items() if v}
+
+    if args.json:
+        json.dump({
+            "run": str(run_dir),
+            "matcher": args.match,
+            "suite": manifest.get("suite", {}),
+            "toolchain": manifest.get("toolchain", {}),
+            "counts": {"FP": report.overall.FP, "FN": report.overall.FN},
+            "hidden_categories": hidden,
+            "by_category": groups,
+        }, sys.stdout, indent=2, sort_keys=True)
+        print()
+        return 0
+
+    if args.format == "html":
+        print(htmlout.render_failures(groups, report, manifest,
+                                      str(run_dir)), end="")
+        return 0
+
+    c = make_palette(args.color)
+    tc = manifest.get("toolchain", {})
+    suite = manifest.get("suite", {})
+    print(f"run       : {run_dir}")
+    print(f"toolchain : {tc.get('name')}  {tc.get('version')}")
+    print(f"suite     : {suite.get('name')} v{suite.get('version')}")
+    print(f"matcher   : {args.match}")
+    print(f"totals    : {c.bad(str(report.overall.FP))} false positives, "
+          f"{c.bad(str(report.overall.FN))} false negatives")
+    if hidden:
+        print(c.dim(f"hidden    : {len(hidden)} categories -fanalyzer does "
+                    f"not attempt ({', '.join(hidden)});"))
+        print(c.dim(f"            pass --all-categories to include them"))
+    print()
+
+    if not groups:
+        print(c.good("no false results"))
+        return 0
+
+    for category, entries in groups.items():
+        fps = [e for e in entries if e["outcome"] == "FP"]
+        fns = [e for e in entries if e["outcome"] == "FN"]
+        head = f"{category}  ({len(fps)} FP, {len(fns)} FN)"
+        print(c.head(head))
+        for e in entries:
+            tag = c.bad("FP") if e["outcome"] == "FP" else c.warn("FN")
+            detail = (f"CWE-{e['cwe']}" if e["cwe"] else "")
+            if e["outcome"] == "FN" and e["lines"]:
+                detail += f" at line(s) {', '.join(map(str, e['lines']))}"
+            print(f"  {tag} {e['name']:<22} {detail}")
+            if args.verbose:
+                for f in e["findings"]:
+                    print(c.dim(f"       reported {f['rule']} "
+                                f"@{f['line']}: {f['message'][:70]}"))
+                if e["outcome"] == "FN" and not e["findings"]:
+                    print(c.dim("       reported nothing"))
+                if e["source"]:
+                    print(c.dim(f"       source {e['source']}"))
+        print()
+
+    if not args.verbose:
+        print(c.dim("(-v shows what was reported, and the source path)"))
+    return 0
 
 
 def cmd_show(args) -> int:
@@ -1043,6 +1242,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--skip-category", action="append", metavar="CAT",
                    help="exclude this category, e.g. one -fanalyzer does "
                         "not cover (repeatable)")
+    s.add_argument("--castle-score", action="store_true",
+                   help="compute the CASTLE Score even for a non-CASTLE "
+                        "suite (it is shown automatically for CASTLE)")
+    s.add_argument("--castle-detect", metavar="RULE", default="cwe",
+                   help="how the CASTLE Score decides a detection: 'cwe' "
+                        "(the paper's rule, needed for comparability) or "
+                        "a gab matcher name (default: cwe)")
     s.add_argument("--compare-matchers", action="store_true",
                    help="also show every matching rule, to see how much "
                         "the choice drives the result")
@@ -1070,11 +1276,32 @@ def build_parser() -> argparse.ArgumentParser:
                         "diagnostics changed")
     s.add_argument("-v", "--verbose", action="store_true",
                    help="show the individual findings that changed")
+    s.add_argument("--castle-detect", metavar="RULE", default="cwe",
+                   help="detection rule for the CASTLE Score, shown when "
+                        "diffing CASTLE runs (default: cwe)")
     s.add_argument("--resource-threshold", type=float, default=1.5,
                    metavar="RATIO",
                    help="flag tests whose peak RSS moved by this factor "
                         "(default: 1.5)")
     s.set_defaults(func=cmd_diff)
+
+    s = sub.add_parser("failures", parents=[common],
+                       help="list the false positives and false negatives "
+                            "in a run")
+    s.add_argument("run_dir")
+    s.add_argument("-m", "--match", default=scoring.DEFAULT_MATCHER,
+                   choices=sorted(scoring.MATCHERS))
+    s.add_argument("-k", "--kind", action="append", choices=("fp", "fn"),
+                   help="restrict to false positives or false negatives "
+                        "(default: both)")
+    s.add_argument("--category", action="append", metavar="CAT")
+    s.add_argument("--skip-category", action="append", metavar="CAT")
+    s.add_argument("--all-categories", action="store_true",
+                   help="include categories -fanalyzer does not attempt, "
+                        "which are hidden by default")
+    s.add_argument("-v", "--verbose", action="store_true",
+                   help="show what the analyzer reported, and source paths")
+    s.set_defaults(func=cmd_failures)
 
     s = sub.add_parser("show", parents=[common], help="dump a run directory as JSON")
     s.add_argument("run_dir")

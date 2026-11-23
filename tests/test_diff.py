@@ -243,3 +243,75 @@ class TestScoringDeltas(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCastleScoreInDiff(unittest.TestCase):
+    """The CASTLE Score appears only for CASTLE runs, and can move
+    independently of the confusion matrix."""
+
+    def _castle_pair(self, before, after, **kw):
+        tmp = tempfile.mkdtemp()
+        b = write_run(Path(tmp) / "b", before, cc1_sha="a" * 64,
+                      suite_name="castle-c250")
+        a = write_run(Path(tmp) / "a", after, cc1_sha="b" * 64,
+                      suite_name="castle-c250")
+        for d in (b, a):
+            m = json.loads((d / "run.json").read_text())
+            m["suite"]["adapter"] = "castle-c250"
+            (d / "run.json").write_text(json.dumps(m))
+        mb, rb = load_run(b)
+        ma, ra = load_run(a)
+        return diff.diff_runs(mb, rb, ma, ra, **kw)
+
+    def test_absent_for_non_castle_suites(self):
+        r = pair([make_record("t")], [make_record("t", lines=(5,),
+                 findings=[make_finding(line=5)])])
+        self.assertIsNone(r.castle_delta())
+
+    def test_present_for_castle_runs(self):
+        rec = make_record("t", cwe=476, lines=(5,),
+                          findings=[make_finding(cwe=476, line=5)])
+        r = self._castle_pair([make_record("t", cwe=476, lines=(5,))],
+                              [rec])
+        cd = r.castle_delta()
+        self.assertIsNotNone(cd)
+        self.assertEqual(cd["before"], 0)    # silent miss costs nothing
+        self.assertEqual(cd["after"], 6)     # 5 + B(476)=1
+        self.assertEqual(cd["direction"], "better")
+
+    def test_moves_when_the_confusion_matrix_does_not(self):
+        """Dropping a spurious extra finding leaves TP/FP/FN/TN alone
+        but gains a CASTLE point, because extra findings are charged."""
+        before = [make_record("t", cwe=476, lines=(5,), findings=[
+            make_finding(cwe=476, line=5),
+            make_finding(cwe=476, line=40)])]
+        after = [make_record("t", cwe=476, lines=(5,), findings=[
+            make_finding(cwe=476, line=5)])]
+        r = self._castle_pair(before, after)
+        self.assertEqual(r.score_before.overall.TP,
+                         r.score_after.overall.TP)
+        cd = r.castle_delta()
+        self.assertEqual(cd["delta"], 1)
+        self.assertEqual(cd["direction"], "better")
+
+    def test_regression_reads_as_worse(self):
+        r = self._castle_pair(
+            [make_record("t", cwe=476, lines=(5,),
+                         findings=[make_finding(cwe=476, line=5)])],
+            [make_record("t", cwe=476, lines=(5,))])
+        self.assertEqual(r.castle_delta()["direction"], "worse")
+
+    def test_detection_rule_is_honoured(self):
+        recs = [make_record("t", cwe=253, lines=(5,),
+                            findings=[make_finding(cwe=690, line=5)])]
+        strict = self._castle_pair(recs, recs, castle_detect="cwe")
+        loose = self._castle_pair(recs, recs, castle_detect="path+1")
+        self.assertEqual(strict.castle_delta()["after"], -1)
+        self.assertEqual(loose.castle_delta()["after"], 5)
+
+    def test_appears_in_json(self):
+        r = self._castle_pair(
+            [make_record("t", cwe=476, lines=(5,))],
+            [make_record("t", cwe=476, lines=(5,),
+                         findings=[make_finding(cwe=476, line=5)])])
+        self.assertIsNotNone(r.as_dict()["scoring"]["castle"])

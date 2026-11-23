@@ -334,6 +334,10 @@ class Runner:
             "toolchain": self.toolchain.identity(),
             "suite": {
                 "name": self.suite.name,
+                # The adapter behind this instance, which may differ
+                # from the name when one adapter is configured twice.
+                # Lets scorers tell what kind of suite this really is.
+                "adapter": type(self.suite).name,
                 "version": self.suite.version(),
                 "root": str(self.suite.root),
                 # Identifies the exact test data, not just its label.
@@ -343,6 +347,10 @@ class Runner:
                 "content_hash": self._content_hash,
                 "n_tests_in_suite": self._n_tests_in_suite,
                 "subset": self._n_tests_in_suite != n_tests,
+                # Recorded so that reports can honour the suite's
+                # scope without needing the suite checkout present.
+                "out_of_scope_categories":
+                    self.suite.out_of_scope_categories(),
                 "cwe_parents": {str(k): v
                                 for k, v in self.suite.cwe_parents().items()},
             },

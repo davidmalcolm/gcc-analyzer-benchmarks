@@ -87,6 +87,23 @@ class Suite:
         """Optional CWE hierarchy shipped with the suite: child -> parents."""
         return {}
 
+    def out_of_scope_categories(self) -> List[str]:
+        """Categories -fanalyzer does not attempt, and never will.
+
+        Listing a whole category as a false negative is noise, not a
+        finding: GCC's analyzer has nothing to say about SQL injection
+        or weak ciphers, so those tests are not "areas for improvement"
+        in any useful sense.  Reports that are about improving the
+        analyzer skip these by default.
+
+        Scoring does *not* skip them automatically -- a score silently
+        computed over a subset would be misleading, and comparability
+        with published numbers depends on saying which categories were
+        counted.  Pass --skip-category there, as the suite's own
+        scorers expect.
+        """
+        return []
+
     def content_hash(self, tests: Optional[List[TestCase]] = None) -> str:
         """Hash of the exact test data a run was executed against.
 

@@ -479,6 +479,13 @@ def _diff_body(report, mb: dict, ma: dict, perf_caveats, result_caveats,
 
     scoring_inner = table(["metric", "before", "after", "change"],
                           list(_delta_rows(report)), numeric=[1, 2, 3])
+    cd = report.castle_delta()
+    if cd:
+        scoring_inner += (
+            f"<p>CASTLE Score: {cd['before']} &#8594; {cd['after']} "
+            f"({tint(signed(cd['delta'], False), cd['direction'])})"
+            f" <span class=\"muted\">detection rule: "
+            f"{esc(cd['detect'])}</span></p>")
     md = report.macro_delta()
     if md:
         direction = ("better" if md["delta"] > 0
@@ -573,3 +580,62 @@ def _diff_body(report, mb: dict, ma: dict, perf_caveats, result_caveats,
                  f"regression(s), {len(report.new_crashes)} new crash(es)"
                  f"</span></p>")
     return "\n".join(parts), entries
+
+
+def render_failures(groups, report, manifest: dict, run_dir: str) -> str:
+    """Where the analyzer could do better, grouped by category."""
+    tc = manifest.get("toolchain") or {}
+    suite = manifest.get("suite") or {}
+    parts, entries = [], []
+
+    parts.append(meta_table([
+        ("run", run_dir),
+        ("toolchain", f"{tc.get('name')} -- {tc.get('version')}"),
+        ("suite", f"{suite.get('name')} v{suite.get('version')}"),
+        ("matcher", report.matcher),
+        ("totals", f"{report.overall.FP} false positives, "
+                   f"{report.overall.FN} false negatives"),
+    ]))
+
+    if not groups:
+        parts.append("<p class=\"good\"><strong>No false results.</strong>"
+                     "</p>")
+        return document("gab failures", "\n".join(parts))
+
+    overview = [[f"<a href=\"#{esc(slug(cat))}\">{esc(cat)}</a>",
+                 sum(1 for e in v if e["outcome"] == "FP"),
+                 sum(1 for e in v if e["outcome"] == "FN")]
+                for cat, v in groups.items()]
+    a = slug("overview")
+    parts.append(section("By category",
+                         table(["category", "FP", "FN"], overview,
+                               numeric=[1, 2]), a))
+    entries.append((a, "By category"))
+
+    for category, items in groups.items():
+        rows = []
+        for e in items:
+            cls = "bad" if e["outcome"] == "FP" else "muted"
+            truth = f"CWE-{e['cwe']}" if e["cwe"] else ""
+            if e["outcome"] == "FN" and e["lines"]:
+                truth += (" at line(s) "
+                          + ", ".join(str(n) for n in e["lines"]))
+            reported = "".join(
+                f"<div>{esc(f['rule'])} @{esc(f['line'])} "
+                f"<span class=\"muted\">{esc(f['message'][:90])}</span></div>"
+                for f in e["findings"]
+            ) or "<span class=\"muted\">nothing reported</span>"
+            rows.append([
+                f"<span class=\"{cls}\">{esc(e['outcome'])}</span>",
+                esc(e["name"]), esc(truth), reported])
+        anchor = slug(category)
+        n_fp = sum(1 for e in items if e["outcome"] == "FP")
+        n_fn = sum(1 for e in items if e["outcome"] == "FN")
+        parts.append(section(
+            f"{category} ({n_fp} FP, {n_fn} FN)",
+            table(["", "test", "ground truth", "analyzer said"], rows),
+            anchor))
+        entries.append((anchor, category))
+
+    return document(f"gab failures -- {suite.get('name')} / "
+                    f"{tc.get('name')}", toc(entries) + "\n".join(parts))

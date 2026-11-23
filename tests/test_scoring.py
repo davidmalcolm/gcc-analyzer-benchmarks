@@ -171,3 +171,91 @@ class TestScore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCastleScore(unittest.TestCase):
+    """Section 3.3 of the CASTLE paper, equations (1) and (2)."""
+
+    def test_bonus_bands(self):
+        from gab.castle_score import bonus, TOP25_RANK
+        # B = 5 - floor((rank-1)/5): five bands of five.
+        self.assertEqual(bonus(787), 5)   # rank 2
+        self.assertEqual(bonus(22), 5)    # rank 5
+        self.assertEqual(bonus(125), 4)   # rank 6
+        self.assertEqual(bonus(416), 4)   # rank 8
+        self.assertEqual(bonus(134), 3)   # rank 12
+        self.assertEqual(bonus(761), 2)   # rank 20
+        self.assertEqual(bonus(476), 1)   # rank 21
+        self.assertEqual(bonus(835), 1)   # rank 24
+
+    def test_bonus_is_zero_outside_the_top_25(self):
+        from gab.castle_score import bonus
+        for cwe in (401, 253, 327, 362, 617, 628, 843, 99999):
+            self.assertEqual(bonus(cwe), 0, cwe)
+        self.assertEqual(bonus(None), 0)
+
+    def _score(self, records, detect="cwe"):
+        from gab.castle_score import castle_score
+        return castle_score(records, detect)
+
+    def test_detection_scores_five_plus_bonus(self):
+        rec = make_record("t", cwe=476, lines=(5,),
+                          findings=[make_finding(cwe=476, line=5)])
+        r = self._score([rec])
+        # one finding: 5 - (1-1) + B(476)=1  ->  6
+        self.assertEqual(r.total, 6)
+        self.assertEqual(r.per_test[0].case, "detected")
+
+    def test_extra_findings_cost_a_point_each(self):
+        rec = make_record("t", cwe=476, lines=(5,), findings=[
+            make_finding(cwe=476, line=5),
+            make_finding(cwe=476, line=9),
+            make_finding(cwe=476, line=11)])
+        # 5 - (3-1) + 1 = 4
+        self.assertEqual(self._score([rec]).total, 4)
+
+    def test_clean_and_quiet_scores_two(self):
+        rec = make_record("t", vulnerable=False, cwe=476, lines=())
+        r = self._score([rec])
+        self.assertEqual(r.total, 2)
+        self.assertEqual(r.per_test[0].case, "clean-and-quiet")
+
+    def test_false_positives_cost_one_each(self):
+        rec = make_record("t", vulnerable=False, cwe=476, lines=(), findings=[
+            make_finding(cwe=476, line=5), make_finding(cwe=476, line=7)])
+        self.assertEqual(self._score([rec]).total, -2)
+
+    def test_silently_missing_a_bug_costs_nothing(self):
+        """-|t(d)| is zero when the tool reported nothing."""
+        rec = make_record("t", cwe=476, lines=(5,))
+        r = self._score([rec])
+        self.assertEqual(r.total, 0)
+        self.assertEqual(r.per_test[0].case, "missed-or-wrong")
+
+    def test_right_place_wrong_cwe_is_not_a_detection_under_the_paper_rule(self):
+        rec = make_record("t", cwe=476, lines=(5,),
+                          findings=[make_finding(cwe=690, line=5)])
+        self.assertEqual(self._score([rec]).total, -1)
+        # ... but it is under a position-based rule.
+        self.assertEqual(self._score([rec], "path+1").total, 6)
+
+    def test_a_silent_tool_scores_two_per_clean_test(self):
+        recs = ([make_record(f"v{i}", cwe=476, lines=(5,)) for i in range(5)]
+                + [make_record(f"c{i}", vulnerable=False, cwe=476, lines=())
+                   for i in range(10)])
+        self.assertEqual(self._score(recs).total, 20)
+
+    def test_crashed_tests_are_excluded_not_scored(self):
+        recs = [make_record("ok", vulnerable=False, cwe=476, lines=()),
+                make_record("boom", cwe=476, lines=(5,), status="ice")]
+        r = self._score(recs)
+        self.assertEqual(r.excluded, ["boom"])
+        self.assertEqual(r.total, 2)
+
+    def test_unknown_detection_rule_raises(self):
+        with self.assertRaises(KeyError):
+            self._score([make_record("t")], "nonsense")
+
+    def test_as_dict_is_json_safe(self):
+        import json
+        json.dumps(self._score([make_record("t")]).as_dict())
