@@ -53,26 +53,24 @@ from gab.scoring import analyzer_findings
 
 BMAX = 5
 
-#: CWE -> rank in MITRE's 2024 Top 25, exactly as the paper's Table 2
-#: assigns it for the CWEs in this dataset.  CWEs the table marks "-"
-#: are absent here and score no bonus.
+#: MITRE's 2024 CWE Top 25, in rank order, exactly as the CASTLE
+#: authors' own code lists it (charts.ipynb, `top_25_cwes`).  Rank is
+#: the 1-based position.
 #:
-#: Table 2 is used verbatim in preference to MITRE's published list,
-#: because reproducing the paper's numbers means reproducing the
-#: paper's inputs.  Note that the two do not fully agree: the real 2024
-#: list puts CWE-798 at 22 rather than 14, and several entries here
-#: (CWE-134, 369, 415, 522, 674, 761, 770, 822, 835) are not in it at
-#: all -- the authors appear to have mapped some weaknesses onto a
-#: parent CWE's standing.  Duplicated ranks in the table (23, 21, 20,
-#: 14 and 24 each appear twice or more) are theirs too.
-TOP25_RANK: Dict[int, int] = {
-    22: 5, 78: 7, 89: 3, 125: 6, 134: 12, 190: 23, 369: 23, 415: 21,
-    416: 8, 476: 21, 522: 14, 674: 24, 761: 20, 770: 24, 787: 2,
-    798: 14, 822: 20, 835: 24,
-}
+#: This is reference [30] of the paper, which is what equation (1)
+#: says to use.  It is deliberately preferred over the paper's Table 2,
+#: which disagrees for nine of the dataset's CWEs: Table 2 assigns a
+#: standing to CWE-134, 369, 415, 522, 674, 761, 770, 822 and 835 even
+#: though none of them appear in the real list, and puts CWE-798 at 14
+#: where MITRE has it at 22.  Table 2 also repeats several ranks.  The
+#: authors' code uses the list below, so the list below is what
+#: reproduces published scores.
+TOP25_2024 = (
+    79, 787, 89, 352, 22, 125, 78, 416, 862, 434, 94, 20, 77, 287, 269,
+    502, 200, 863, 918, 119, 476, 798, 190, 400, 306,
+)
 
-#: Dataset CWEs the paper's Table 2 marks as having no Top 25 standing.
-NO_STANDING = frozenset({253, 327, 362, 401, 617, 628, 843})
+TOP25_RANK: Dict[int, int] = {c: i + 1 for i, c in enumerate(TOP25_2024)}
 
 
 def bonus(cwe: Optional[int]) -> int:

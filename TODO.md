@@ -62,35 +62,50 @@ Near-term
   bot-protection: fetching the HTML fails, but the REST endpoint
   `https://gcc.gnu.org/bugzilla/rest/bug/<id>/comment` works.
 
-* **The CASTLE Score is implemented** (gab/castle_score.py, from
-  section 3.3 of the paper), but our number does not reproduce the
-  paper's.  They report 559 for GCC 13.3.0 with TP 41 / TN 76 / FP 93;
-  we get 320 for GCC 16 under the paper's CWE rule, with 25 detected
-  and only 6 clean files disturbed.  Worth resolving before quoting
-  either number:
+* **The CASTLE Score: the paper and the authors' code are two
+  different metrics.**  `gab/castle_score.py` implements the paper
+  (equations 1-2 of section 3.3).  The authors' own implementation,
+  in CASTLE-Source/charts.ipynb, does something else, and it is the
+  code that produced the published numbers:
 
-  - Their TP/TN/FP/FN sum to more than 250 for most tools, so their FP
-    column counts individual findings, not files.
-  - **They counted every GCC warning, not just `-Wanalyzer-*`.**
-    Confirmed: re-running CASTLE with `-Wall -Wextra` and counting all
-    diagnostics leaves exactly 76 of the 100 clean files quiet, which
-    is the paper's TN=76 to the test.  None of those extra warnings
-    carry a CWE (37 `-Wunused-parameter`, 24 `-Wsign-compare`, ...),
-    so under the paper's own CWE rule they can only ever subtract
-    points -- which makes their TP=41 harder to explain, not easier,
-    and points back at the unspecified evaluation step below.
-    `gab` filters to `-Wanalyzer-*`, so its scores are unaffected by
-    `-Wall -Wextra`; this is a difference in what is being measured,
-    not a bug on either side.  Worth raising with the CASTLE authors:
-    their GCC row arguably scores GCC's whole warning output rather
-    than `-fanalyzer`.
-  - The paper states "v_i in t(d_i)" but never operationalises it;
-    their repo describes evaluating findings as a separate manual step,
-    so the published numbers may rest on human judgement our CWE
-    equality rule cannot reproduce.
+  - Paper, per test: `5 - (|t(d)|-1) + B(cwe)` / `2` / `-|t(d)|`.
+  - Code: classify each test, then
+    `5*tp + 2*tn + (-1)*fp + 0*fn + bonus`, with the bonus accumulated
+    in a separate loop.
+  - Detection in the code is `finding.line in test.lines OR
+    finding.cwe in {cwe} + parents + children` -- far more lenient
+    than the paper's "v_i in t(d_i)", and the likely reason they
+    report TP 41 for GCC where our CWE-equality rule gives 25.
+  - Their bonus loop reads `if cwe in cwe_toplist and tps > 0`, where
+    `tps` is the *running total*, not the current test's result.  So
+    after the first true positive every later Top-25 test contributes
+    a bonus whether or not it was detected.  Looks like a bug; it
+    inflates scores.  Reported as https://github.com/CASTLE-Benchmark/CASTLE-Source/issues/2
 
-  BenchProctor's category-averaged TPR-FPR is also implemented and
-  *does* agree with their scorer exactly.
+  Decide whether to add an "as-implemented" mode alongside the
+  paper-faithful one.  Only the former can reproduce published
+  numbers; only the latter matches what the paper says.
+
+* The Top-25 table is settled: use MITRE's real 2024 list, which is
+  what equation (1)'s reference [30] specifies and what the authors'
+  code contains.  The paper's Table 2 disagrees for nine of the
+  dataset's CWEs and is not used by their code.  Switching to the real
+  list moved our GCC 16 score from 320 to 306.
+
+* How the authors ran GCC, from CASTLE-Source/wrappers/gcc-fanalyzer:
+  `<compile> -Wall -Wextra -fanalyzer`, on Ubuntu 24.04 (GCC 13.3,
+  default gnu17 -- which is why they met none of the C23 problems we
+  did), parsing *text* output with a regex over every
+  `file:line:col: type: message`, and taking the CWE from a
+  `[CWE-nnn]` suffix.  So their "GCC Fanalyzer" row scores GCC's whole
+  warning output: 37 `-Wunused-parameter` and 24 `-Wsign-compare`
+  findings, none carrying a CWE, count against it.  Confirmed
+  independently: counting all warnings leaves exactly 76 of 100 clean
+  files quiet, which is their TN=76 to the test.
+
+* Note the paper we worked from is the arXiv preprint; the published
+  version and the project website report different GCC numbers.  The
+  Top 25 standing table agrees between preprint and website.
 
 * Add a `--fail-on` selector to `gab diff` so a bisection script can say
   which property it is bisecting for (any regression / new crash only /

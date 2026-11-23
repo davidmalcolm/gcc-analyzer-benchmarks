@@ -183,16 +183,26 @@ class TestCastleScore(unittest.TestCase):
         self.assertEqual(bonus(22), 5)    # rank 5
         self.assertEqual(bonus(125), 4)   # rank 6
         self.assertEqual(bonus(416), 4)   # rank 8
-        self.assertEqual(bonus(134), 3)   # rank 12
-        self.assertEqual(bonus(761), 2)   # rank 20
+        self.assertEqual(bonus(20), 3)    # rank 12
+        self.assertEqual(bonus(119), 2)   # rank 20
         self.assertEqual(bonus(476), 1)   # rank 21
-        self.assertEqual(bonus(835), 1)   # rank 24
+        self.assertEqual(bonus(190), 1)   # rank 23
 
     def test_bonus_is_zero_outside_the_top_25(self):
         from gab.castle_score import bonus
         for cwe in (401, 253, 327, 362, 617, 628, 843, 99999):
             self.assertEqual(bonus(cwe), 0, cwe)
         self.assertEqual(bonus(None), 0)
+
+    def test_follows_mitre_not_the_papers_table_2(self):
+        """Table 2 of the paper disagrees with its own reference [30];
+        the authors' code uses the real list, so we do too."""
+        from gab.castle_score import bonus, TOP25_RANK
+        self.assertEqual(TOP25_RANK[798], 22)      # Table 2 said 14
+        self.assertEqual(bonus(798), 1)            # Table 2 implied 3
+        for cwe in (134, 369, 415, 522, 674, 761, 770, 822, 835):
+            self.assertNotIn(cwe, TOP25_RANK, cwe)
+            self.assertEqual(bonus(cwe), 0, cwe)
 
     def _score(self, records, detect="cwe"):
         from gab.castle_score import castle_score
