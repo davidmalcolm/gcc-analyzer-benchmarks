@@ -105,9 +105,10 @@ def section(title: str, inner: str, anchor: str, *, open_: bool = True,
     if count is not None:
         label += f" <span class=\"count\">({count})</span>"
     classes = f"{kind} {cls}".strip()
+    open_text = ' open="open"' if open_ else ''
     return (
         f"<details class=\"{classes}\" id=\"{esc(anchor)}\""
-        f"{' open=\"open\"' if open_ else ''}>"
+        f"{open_text}>"
         f"<summary>{label}"
         f"<a class=\"anchor\" href=\"#{esc(anchor)}\" "
         f"title=\"link to this section\">#</a></summary>"
