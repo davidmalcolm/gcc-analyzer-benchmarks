@@ -74,23 +74,37 @@ slot in a custom cc1 (for bisecting which commit introduced a change).
 * SARIF-based, but to get at historical data, would be nice to be able to
 also test the versions of the GCC analyzer from before SARIF output was added
 
-* maybe a debug mode that adds "analyzer-graphs=yes" to the SARIF-generation
-options, to ease debugging of false results.
 
+Invocation
+----------
 
-Suites to investigate
----------------------
+```
+$ ./bin/gab --help
+usage: gab [-h] [--version] [-c PATH] [--color {auto,always,never}] [-f {text,json,html}]
+           [--json] [--html]
+           {suites,toolchains,run,score,diff,failures,show} ...
 
-* BenchProctor:
-  * https://github.com/TheAuditorTool/BenchProctor#readme
-  * https://gcc.gnu.org/bugzilla/show_bug.cgi?id=128852
-* CASTLE: https://github.com/CASTLE-Benchmark/CASTLE-Benchmark
-* Juliet
-* SARD
+Benchmark GCC's static analyzer (-fanalyzer).
 
+positional arguments:
+  {suites,toolchains,run,score,diff,failures,show}
+    suites              list configured suites
+    toolchains          list configured compilers
+    run                 run a suite under a compiler
+    score               score a run directory
+    diff                compare two run directories
+    failures            list the false positives and false negatives in a run
+    show                dump a run directory as JSON
 
-Notes
------
-
-Do we want the report format to itself be SARIF (a kind of meta-SARIF)?
-Or is that overthinking things?
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  -c, --config PATH     config file (default: ./config.json or $GAB_CONFIG)
+  --color {auto,always,never}
+                        colourise output (default: auto -- on only when writing to a
+                        terminal, never under NO_COLOR)
+  -f, --format {text,json,html}
+                        output format (default: text)
+  --json                shorthand for --format json
+  --html                shorthand for --format html
+```
