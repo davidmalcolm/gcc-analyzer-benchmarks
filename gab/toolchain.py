@@ -79,7 +79,7 @@ def _gcc_descr(src_dir: Path) -> Optional[str]:
     return descr
 
 
-def _sha256(path: Path, limit: int = 512 * 1024 * 1024) -> Optional[str]:
+def _sha256(path: Path, limit: int = 1024 * 1024 * 1024) -> Optional[str]:
     try:
         h = hashlib.sha256()
         read = 0
