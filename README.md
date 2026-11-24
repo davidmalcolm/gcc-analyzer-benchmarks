@@ -57,7 +57,7 @@ at in the debugger/file a bug report/etc.
 * capture resource usage: peak memory, time taken, so that we can report on
 major regressions/improvements.
 
-* no (or few) dependencies: just Python?
+* no (or few) dependencies: just Python 3.9+
 
 * reuse existing suites (if we're writing our own cases by hand, these can
 simply live in GCC's DejaGnu-based testsuite).   Will want to be able to

@@ -5,8 +5,11 @@
 TODO
 ====
 
-Status as of 2026-11-22.  Run, score and diff all work end to end
-against BenchProctor and CASTLE.
+Status as of 2026-11-23.  Run, score and diff all work end to end
+against BenchProctor and CASTLE on my laptop, and work well enough
+on a compile-farm machine to do (very) basic validation of candidate
+patches for GCC (some tests fail with `compile-error` due to missing
+headers).
 
 What exists: `gab suites`, `gab toolchains`, `gab run`, `gab score`,
 `gab diff`, `gab show`.  Run directories hold raw SARIF, flattened
@@ -51,6 +54,8 @@ Open decisions
 
 Near-term
 ---------
+
+* Get all benchmarks running on cfarm box (or skip missing dependencies).
 
 * Validate `gab score` against the manual numbers in
   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=128852 whenever that bug
@@ -153,6 +158,18 @@ Near-term
   already have entries there, under "Planned"; BenchProctor's entry
   pins a release, which needs updating whenever we move to a new one.
 
+* `failures` command should show `compile-error` results
+
+* We should smoketest invoking the toolchain with a trivial .c file
+  before running a testsuite.  Currently if I forget to set
+  `LD_LIBRARY_PATH` in my test configuration, I get things like:
+  ```
+  $ less runs/20261124-001621-control-all/castle-c250/logs/CASTLE-125-2.txt
+  /home/dmalcolm/gcc-build/test/control/aarch64-unknown-linux-gnu/install/libexec/gcc/aarch64-unknown-linux-gnu/17.0.0/cc1: error while loading shared libraries: libisl.so.15: cannot open shared object file: No such file or directory
+  ```
+  hidden in the logs and the whole run is `compile-error`.  We should fail
+  early and loudly for such misconfigurations.
+
 
 Medium-term
 -----------
@@ -205,6 +222,17 @@ Medium-term
   or for false positives of warnings ).  I think I'll eventually want to
   be able to run "gab" within one of these scripts to determine which gcc
   patch affected a benchmark result/property.
+
+* GCC revisions identified in the form r<major>-<count> seem to be based
+  on `HEAD`, but this doesn't take into account local commits applied
+  on top of `origin/HEAD`.  For example, with `origin/HEAD` at
+  173072492587491dea9e2b0a9d02da9e4dff2c65 and 27 local commits on top
+  where HEAD is 22ec631d752d7bf358233d65e3852288beade85c,
+  `testsuites` reports `r17-6305-g22ec631d752d7b on HEAD`, when
+  it should report something like:
+  `r17-6278-g17307249258749 + 27 local commits`.  diff.py's _revision_skew
+  would need to handle this also (perhaps convert these revisions from 'str'
+  to a class?)
 
 
 Longer-term
