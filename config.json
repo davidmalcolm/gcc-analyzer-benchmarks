@@ -47,7 +47,10 @@
       "path": "${HOME}/coding/BenchProctor"
     },
     "castle-c250": {
-      "path": "${HOME}/coding/CASTLE-Benchmark"
+	"path": "${HOME}/coding/CASTLE-Benchmark"
+    },
+    "itc": {
+      "path": "${HOME}/coding/2016-09-12-itc-benchmarks-unzipped"
     }
   },
 

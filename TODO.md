@@ -182,6 +182,9 @@ Medium-term
   multi-file test cases and `omitgood`/`omitbad` build variants, which
   the current single-file `TestCase` model does not express.
 
+* ITC suite: initial version added, but see the various FIXMEs in
+  gab/suites/itc.py
+
 * Other suites: the CASTLE paper has a handy catalog of suites (might
   be in the repo also)
 

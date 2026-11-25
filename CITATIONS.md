@@ -83,6 +83,39 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=128852 -- note that
 Bugzilla's HTML is behind bot protection, but the REST endpoint
 `https://gcc.gnu.org/bugzilla/rest/bug/128852/comment` is readable.
 
+### ITC-Benchmarks (SARD testsuite 104)
+
+BSD licensed.
+
+https://samate.nist.gov/SARD/test-suites/104
+
+Download from https://samate.nist.gov/SARD/downloads/test-suites/2016-09-12-itc-benchmarks.zip
+
+sha256sum: 7940a898b8a0159239e1687e5af0a3db220a2b6fdc8811a87d01e4b6a62f6514
+
+Point the config at a directory containing an unzipped copy e.g. via:
+```shell
+unzip 2016-09-12-itc-benchmarks.zip -d 2016-09-12-itc-benchmarks-unzipped
+```
+
+```bibtex
+@inproceedings{inproceedings,
+author = {Shiraishi, Shinichi and MOHAN, Veena and Marimuthu, Hemalatha},
+year = {2015},
+month = {11},
+pages = {},
+title = {Test Suites for Benchmarks of Static Analysis Tools},
+doi = {10.1109/ISSREW.2015.7392027}
+}
+```
+
+SARD obtained these from https://github.com/regehr/itc-benchmarks
+and seem to have added .sarif files giving ground-truth labelling beyond
+what that git repo had.
+
+GCC analyzer improvements driven by this suite are tracked in
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=129005
+
 
 Planned
 -------

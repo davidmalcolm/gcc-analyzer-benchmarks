@@ -192,4 +192,4 @@ def _load_builtin() -> None:
     if _loaded:
         return
     _loaded = True
-    from gab.suites import benchproctor, castle  # noqa: F401
+    from gab.suites import benchproctor, castle, itc  # noqa: F401
