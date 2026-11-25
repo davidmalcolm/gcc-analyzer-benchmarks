@@ -4,19 +4,28 @@
 GCC Analyzer Benchmarks
 =======================
 
-Intent
-------
+A harness for automatically running and scoring GCC's `-fanalyzer`
+against various C static analyzer benchmark suites, for validating
+patches to the [GCC static analyzer](https://gcc.gnu.org/wiki/StaticAnalyzer)
 
-A harness for automatically running and scoring various C static analyzer
-benchmark suites.
+```
+$ ./bin/gab suites
+config: /home/dmalcolm/coding/gcc-analyzer-benchmarks/config.json
 
-In particular, this exists for testing the GCC static analyzer (-fanalyzer).
-I want something I can use to validate patches to the GCC analyzer.
+  benchproctor-c      1140 tests   570 vulnerable   19 categories     0 with line truth   v2026.11.19.1+g23a5f7bd
+                     /home/dmalcolm/coding/BenchProctor
+  castle-c250          250 tests   150 vulnerable   25 categories   150 with line truth   v1.2+gc7391c9
+                     /home/dmalcolm/coding/CASTLE-Benchmark
+  itc                   72 tests    49 vulnerable    9 categories    70 with line truth   v2022-03-29T11:22:37-04:00
+                     /home/dmalcolm/coding/2016-09-12-itc-benchmarks-unzipped
+```
 
-Single-file self-contained test cases for now. (TODO: actually, some have a few minimal dependencies; document this)
+See CITATIONS.md for more details of which 3rd-party suites this can run.
 
 This harness is MIT-licensed.  The 3rd-party benchmarks it runs may
 be under different licenses.  See CITATIONS.md for how to credit them.
+
+Single-file self-contained test cases for now. (TODO: actually, some have a few minimal dependencies; document this)
 
 Much of the implementation was written by Claude Opus 5 (Anthropic) in
 interactive sessions, from my design and under my review; see AUTHORS.
