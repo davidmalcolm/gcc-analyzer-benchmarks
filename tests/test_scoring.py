@@ -269,3 +269,71 @@ class TestCastleScore(unittest.TestCase):
     def test_as_dict_is_json_safe(self):
         import json
         json.dumps(self._score([make_record("t")]).as_dict())
+
+
+class TestCastleGrid(unittest.TestCase):
+    def test_max_points(self):
+        from gab.castle_score import max_points
+        self.assertEqual(max_points(787, True), 10)   # 5 + bonus 5
+        self.assertEqual(max_points(401, True), 5)    # 5 + no bonus
+        self.assertEqual(max_points(787, False), 2)   # clean test
+        self.assertEqual(max_points(None, True), 5)
+
+    def _grid(self, records):
+        from gab.castle_score import castle_score, grid
+        return grid(castle_score(records))
+
+    def test_rows_are_one_per_cwe_sorted(self):
+        recs = [make_record("CASTLE-476-1", cwe=476, lines=(5,)),
+                make_record("CASTLE-22-1", cwe=22, lines=(5,))]
+        self.assertEqual([r.cwe for r in self._grid(recs)], [22, 476])
+
+    def test_cells_order_by_trailing_number_not_lexically(self):
+        recs = [make_record(f"CASTLE-401-{i}", cwe=401, lines=(5,))
+                for i in (10, 2, 1)]
+        [row] = self._grid(recs)
+        self.assertEqual([c.index for c in row.cells], [1, 2, 10])
+
+    def test_perfect_cell_is_full_marks(self):
+        recs = [make_record("CASTLE-476-1", cwe=476, lines=(5,),
+                            findings=[make_finding(cwe=476, line=5)])]
+        [row] = self._grid(recs)
+        cell = row.cells[0]
+        self.assertEqual((cell.points, cell.max_points), (6, 6))
+        self.assertEqual(cell.ratio, 1.0)
+
+    def test_silent_miss_is_zero_not_negative(self):
+        recs = [make_record("CASTLE-401-1", cwe=401, lines=(5,))]
+        cell = self._grid(recs)[0].cells[0]
+        self.assertEqual(cell.points, 0)
+        self.assertEqual(cell.ratio, 0.0)
+
+    def test_false_positive_cell_is_negative(self):
+        recs = [make_record("CASTLE-401-7", cwe=401, vulnerable=False,
+                            lines=(), findings=[make_finding(line=5)])]
+        cell = self._grid(recs)[0].cells[0]
+        self.assertEqual((cell.points, cell.max_points), (-1, 2))
+        self.assertLess(cell.ratio, 0)
+
+    def test_row_totals_match_the_overall_score(self):
+        from gab.castle_score import castle_score
+        recs = ([make_record(f"CASTLE-476-{i}", cwe=476, lines=(5,),
+                             findings=[make_finding(cwe=476, line=5)])
+                 for i in range(1, 7)]
+                + [make_record(f"CASTLE-476-{i}", cwe=476,
+                               vulnerable=False, lines=())
+                   for i in range(7, 11)])
+        rows = self._grid(recs)
+        self.assertEqual(sum(r.points for r in rows),
+                         castle_score(recs).total)
+        # 6 * (5+1) + 4 * 2 -- a perfect row.
+        self.assertEqual(rows[0].max_points, 44)
+        self.assertEqual(rows[0].points, 44)
+
+    def test_heat_encodes_sign_and_magnitude(self):
+        from gab.htmlout import heat
+        self.assertIn("125", heat(1.0))      # green hue for positive
+        self.assertIn("0% 90%", heat(0.0))   # grey for a silent miss
+        self.assertIn("5 70%", heat(-1.0))   # red hue for negative
+        # Stronger result -> darker cell.
+        self.assertNotEqual(heat(0.25), heat(1.0))

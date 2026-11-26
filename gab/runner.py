@@ -351,6 +351,8 @@ class Runner:
                 # scope without needing the suite checkout present.
                 "out_of_scope_categories":
                     self.suite.out_of_scope_categories(),
+                "cwe_names": {str(k): v
+                              for k, v in self.suite.cwe_names().items()},
                 "cwe_parents": {str(k): v
                                 for k, v in self.suite.cwe_parents().items()},
             },

@@ -46,6 +46,7 @@ Three consequences worth knowing before reading a number:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
@@ -208,3 +209,86 @@ def castle_score(records: Sequence[dict], detect: str = "cwe") -> CastleResult:
             case=case))
 
     return CastleResult(total=total, per_test=per_test, excluded=excluded)
+
+
+# -- grid view -----------------------------------------------------------
+
+def max_points(cwe: Optional[int], vulnerable: bool) -> int:
+    """The best a tool can score on one test.
+
+    A vulnerable test peaks at 5 + B(cwe): the tool reports the right
+    CWE and nothing else, so the `-(|t(d)|-1)` term is zero.  A clean
+    test peaks at 2, for staying silent.
+    """
+    return (5 + bonus(cwe)) if vulnerable else 2
+
+
+@dataclass
+class GridCell:
+    name: str
+    index: Optional[int]
+    vulnerable: bool
+    points: int
+    max_points: int
+    case: str
+
+    @property
+    def ratio(self) -> float:
+        """Score as a fraction of the best possible, clamped to [-1, 1].
+
+        Negative means the tool lost points here -- it reported
+        something that was not the flaw under test.
+        """
+        if self.max_points <= 0:
+            return 0.0
+        return max(-1.0, min(1.0, self.points / self.max_points))
+
+
+@dataclass
+class GridRow:
+    cwe: Optional[int]
+    bonus: int
+    cells: List[GridCell]
+
+    @property
+    def points(self) -> int:
+        return sum(c.points for c in self.cells)
+
+    @property
+    def max_points(self) -> int:
+        return sum(c.max_points for c in self.cells)
+
+    @property
+    def ratio(self) -> float:
+        return (self.points / self.max_points) if self.max_points else 0.0
+
+
+_NAME_INDEX = re.compile(r"-(\d+)$")
+
+
+def grid(result: "CastleResult") -> List[GridRow]:
+    """Per-CWE rows of per-test cells.
+
+    CASTLE-C250 is exactly 25 CWEs x 10 tests, the first six of each
+    vulnerable, so this lays out as a dense grid with no gaps.  Nothing
+    here assumes that: rows are whatever CWEs are present, and cells
+    are ordered by the trailing number in the test name where there is
+    one, falling back to the order scored.
+    """
+    rows: Dict[Optional[int], List[GridCell]] = {}
+    for t in result.per_test:
+        m = _NAME_INDEX.search(t.name)
+        rows.setdefault(t.cwe, []).append(GridCell(
+            name=t.name,
+            index=int(m.group(1)) if m else None,
+            vulnerable=t.vulnerable,
+            points=t.points,
+            max_points=max_points(t.cwe, t.vulnerable),
+            case=t.case,
+        ))
+    out = []
+    for cwe in sorted(rows, key=lambda c: (c is None, c or 0)):
+        cells = sorted(rows[cwe],
+                       key=lambda c: (c.index is None, c.index or 0, c.name))
+        out.append(GridRow(cwe=cwe, bonus=bonus(cwe), cells=cells))
+    return out

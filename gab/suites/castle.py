@@ -45,6 +45,19 @@ COMPILE_ARGS = (
 )
 
 
+#: CASTLE CWEs that -fanalyzer does not attempt.  Injection, crypto,
+#: credential-handling and concurrency weaknesses are outside a C
+#: memory-safety analyzer's remit, so a miss there says nothing about
+#: analyzer quality.
+#:
+#: MAINTAINER: this is a judgement call about what -fanalyzer is *for*,
+#: and it is the one list in this file worth arguing about.  Borderline
+#: cases deliberately left IN scope, because the analyzer has or could
+#: have something to say: CWE-134 (format string, reachable via taint
+#: mode), 253, 628, 674, 761, 770, 822.
+OUT_OF_SCOPE_CWES = (22, 78, 89, 327, 362, 522, 798, 843)
+
+
 @register
 class CastleC250(Suite):
     name = "castle-c250"
@@ -98,6 +111,19 @@ class CastleC250(Suite):
                 f"(first few: {', '.join(missing[:5])})"
             )
         return out
+
+    def out_of_scope_categories(self) -> List[str]:
+        return [f"CWE-{c}" for c in OUT_OF_SCOPE_CWES]
+
+    def cwe_names(self) -> Dict[int, str]:
+        """CWE -> short name, from the dataset's own taxonomy."""
+        out = {}
+        for cwe_str, info in (self._data.get("cwes") or {}).items():
+            try:
+                out[int(cwe_str)] = info.get("name") or ""
+            except (TypeError, ValueError):
+                pass
+        return {k: v for k, v in out.items() if v}
 
     def cwe_parents(self) -> Dict[int, List[int]]:
         """child CWE -> parent CWEs, from the dataset's own taxonomy."""

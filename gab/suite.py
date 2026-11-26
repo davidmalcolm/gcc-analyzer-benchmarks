@@ -87,6 +87,15 @@ class Suite:
         """Optional CWE hierarchy shipped with the suite: child -> parents."""
         return {}
 
+    def cwe_names(self) -> Dict[int, str]:
+        """Optional CWE -> human-readable name, if the suite ships them.
+
+        Used for hover help in HTML, so a reader need not remember what
+        CWE-nnn means.  Only suite-supplied names are used; we do not
+        guess at them.
+        """
+        return {}
+
     def out_of_scope_categories(self) -> List[str]:
         """Categories -fanalyzer does not attempt, and never will.
 

@@ -440,6 +440,68 @@ def _pct(x) -> str:
     return "   n/a" if x is None else f"{x * 100:5.1f}%"
 
 
+def _print_castle_grid(rows, c, out_of_scope=()) -> None:
+    """The score grid in a terminal.
+
+    Same shape as the HTML version, with colour standing in for the
+    heat map: green where points were scored, red where they were
+    lost, dim where the analyzer simply said nothing.
+    """
+    if not rows:
+        return
+    oos = {htmlout._oos_key(x) for x in (out_of_scope or ())}
+    width = max(len(r.cells) for r in rows)
+    print(c.head("\n  CASTLE score grid"))
+    print(f"  {'CWE':<11} {'score':>8}  "
+          + " ".join(f"{i + 1:>5}" for i in range(width)))
+    for r in rows:
+        cells = []
+        for cell in r.cells:
+            text = f"{cell.points}/{cell.max_points}"
+            if cell.points < 0:
+                cells.append(c.bad(f"{text:>5}"))
+            elif cell.ratio >= 1.0:
+                cells.append(c.good(f"{text:>5}"))
+            elif cell.points > 0:
+                cells.append(c.warn(f"{text:>5}"))
+            else:
+                cells.append(c.dim(f"{text:>5}"))
+        label = f"CWE-{r.cwe}" if r.cwe is not None else "(none)"
+        bonus = f"+{r.bonus}" if r.bonus else "  "
+        line = (f"  {label:<8}{bonus:>3} {r.points:>4}/{r.max_points:<3} "
+                + " ".join(cells))
+        print(c.dim(line + "   (out of scope)") if r.cwe in oos else line)
+    total = sum(r.points for r in rows)
+    best = sum(r.max_points for r in rows)
+    print(f"  {'total':<11} {total:>4}/{best:<3}")
+    in_rows = [r for r in rows if r.cwe not in oos]
+    if oos and len(in_rows) != len(rows):
+        print(f"  {'in scope':<11} {sum(r.points for r in in_rows):>4}"
+              f"/{sum(r.max_points for r in in_rows):<3}")
+    print(c.dim("  tests 1-6 vulnerable, 7-10 clean; +n is the Top-25 "
+                "bonus, which raises\n  the maximum for that CWE's "
+                "vulnerable tests"))
+
+
+def _castle_grid_for(manifest: dict, records, args) -> Optional[dict]:
+    """Grid data for the CASTLE score, when the suite is CASTLE."""
+    suite = manifest.get("suite") or {}
+    adapter = suite.get("adapter") or suite.get("name")
+    if adapter != "castle-c250" and not getattr(args, "castle_score", False):
+        return None
+    from gab.castle_score import castle_score as _cs, grid as _grid
+    detect = getattr(args, "castle_detect", None) or "cwe"
+    names = {}
+    for k, v in (suite.get("cwe_names") or {}).items():
+        try:
+            names[int(k)] = v
+        except (TypeError, ValueError):
+            pass
+    return {"rows": _grid(_cs(records, detect)),
+            "cwe_names": names,
+            "out_of_scope": suite.get("out_of_scope_categories") or []}
+
+
 def _castle_score_for(manifest: dict, records, args) -> Optional[dict]:
     """The CASTLE Score, when it applies.
 
@@ -485,10 +547,11 @@ def _score_group(args, root: Path) -> int:
                                    args.skip_category)
         except KeyError as e:
             _die(str(e))
-        reports.append((suite_name, child, manifest, report))
+        reports.append((suite_name, child, manifest, report,
+                        _castle_grid_for(manifest, records, args)))
 
     combined = scoring.Counts()
-    for _, _, _, r in reports:
+    for _, _, _, r, *_ in reports:
         for field in ("TP", "FP", "FN", "TN", "excluded"):
             setattr(combined, field,
                     getattr(combined, field) + getattr(r.overall, field))
@@ -500,7 +563,7 @@ def _score_group(args, root: Path) -> int:
             "matcher": args.match,
             "toolchain": group_manifest.get("toolchain", {}),
             "suites": {name: rep.as_dict()
-                       for name, _, _, rep in reports},
+                       for name, _, _, rep, *_ in reports},
             "combined": combined.as_dict(),
         }, sys.stdout, indent=2, sort_keys=True)
         print()
@@ -518,7 +581,7 @@ def _score_group(args, root: Path) -> int:
           f"[{tc.get('build_type')}]")
     print(f"matcher   : {args.match}")
     print("suites    :")
-    for name, _child, manifest, rep in reports:
+    for name, _child, manifest, rep, *_ in reports:
         su = manifest.get("suite") or {}
         subset = "  [subset]" if su.get("subset") else ""
         print(f"            {name} v{su.get('version')}  "
@@ -527,7 +590,7 @@ def _score_group(args, root: Path) -> int:
     print()
     print(f"  {'suite':<18} {'TP':>5} {'FP':>5} {'FN':>5} {'TN':>5}"
           f" {'recall':>8} {'prec':>8} {'macro':>8}")
-    for name, _, _, rep in reports:
+    for name, _, _, rep, *_ in reports:
         c, m = rep.overall, rep.macro
         macro = "n/a" if m["score"] is None else f"{m['score']:+.3f}"
         print(f"  {name:<18} {c.TP:>5} {c.FP:>5} {c.FN:>5} {c.TN:>5}"
@@ -537,6 +600,19 @@ def _score_group(args, root: Path) -> int:
           f" {_pct(combined.recall):>8} {_pct(combined.precision):>8}")
     print(pal.dim("  (combined is a flat sum, so the largest suite "
                   "dominates it; prefer the per-suite rows)"))
+
+    if getattr(args, "castle_grid", False):
+        shown = False
+        for name, _child, _manifest, _rep, *rest in reports:
+            cg = rest[0] if rest else None
+            if not cg:
+                continue
+            shown = True
+            print(pal.head(f"\n=== {name}"))
+            _print_castle_grid(cg["rows"], pal, cg.get("out_of_scope"))
+        if not shown:
+            print(pal.warn("\n  --castle-grid: no CASTLE suite in this "
+                           "run"))
     if combined.excluded:
         print(pal.alarm(f"\n!! {combined.excluded} test(s) excluded "
                         f"across all suites"))
@@ -568,7 +644,10 @@ def _score_one(args, run_dir: Path) -> int:
         return 0
 
     if args.format == "html":
-        print(htmlout.render_score(report, manifest, str(run_dir)), end="")
+        print(htmlout.render_score(report, manifest, str(run_dir),
+                                   castle=_castle_grid_for(manifest,
+                                                           records, args)),
+              end="")
         return 1 if report.overall.excluded else 0
 
     tc = manifest.get("toolchain", {})
@@ -625,6 +704,15 @@ def _score_one(args, run_dir: Path) -> int:
             shown = ", ".join(names[:6])
             more = f" ... +{len(names) - 6}" if len(names) > 6 else ""
             print(f"     {status:<14} {len(names):>4}   {shown}{more}")
+
+    if getattr(args, "castle_grid", False):
+        cg = _castle_grid_for(manifest, records, args)
+        if cg:
+            _print_castle_grid(cg["rows"], make_palette(args.color),
+                               cg.get("out_of_scope"))
+        else:
+            print(make_palette(args.color).warn(
+                "  --castle-grid: this run is not a CASTLE run"))
 
     if not args.no_categories:
         print(f"\n  {'category':<22} {'TP':>4} {'FP':>4} {'FN':>4} {'TN':>4}"
@@ -1249,6 +1337,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how the CASTLE Score decides a detection: 'cwe' "
                         "(the paper's rule, needed for comparability) or "
                         "a gab matcher name (default: cwe)")
+    s.add_argument("--castle-grid", action="store_true",
+                   help="show the CASTLE score as a CWE x test grid "
+                        "(always included in --format html)")
     s.add_argument("--compare-matchers", action="store_true",
                    help="also show every matching rule, to see how much "
                         "the choice drives the result")

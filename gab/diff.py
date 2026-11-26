@@ -149,6 +149,10 @@ class DiffReport:
     suite_after: dict = field(default_factory=dict)
     castle_before: Optional[dict] = None
     castle_after: Optional[dict] = None
+    castle_rows_before: Optional[list] = None
+    castle_rows_after: Optional[list] = None
+    castle_meta: dict = field(default_factory=dict)
+    """cwe_names and out_of_scope, for rendering the grid."""
     rss_baseline_ratio: float = 1.0
     """Median peak-RSS ratio across all shared tests: the systematic
     difference in footprint between the two compilers.  `resources`
@@ -533,22 +537,38 @@ def diff_runs(
                         matcher_name, **kw)
 
     castle_b = castle_a = None
+    castle_rows_b = castle_rows_a = None
+    castle_meta = {}
     suite_meta = manifest_before.get("suite") or {}
     adapter = suite_meta.get("adapter") or suite_meta.get("name")
     if adapter == "castle-c250":
-        from gab.castle_score import castle_score as _cs
+        from gab.castle_score import castle_score as _cs, grid as _grid
         detect = castle_detect or "cwe"
-        castle_b = dict(_cs([r for r in records_before
-                             if r["name"] in shared_set], detect).as_dict(),
-                        detect=detect)
-        castle_a = dict(_cs([r for r in records_after
-                             if r["name"] in shared_set], detect).as_dict(),
-                        detect=detect)
+        res_b = _cs([r for r in records_before
+                     if r["name"] in shared_set], detect)
+        res_a = _cs([r for r in records_after
+                     if r["name"] in shared_set], detect)
+        castle_b = dict(res_b.as_dict(), detect=detect)
+        castle_a = dict(res_a.as_dict(), detect=detect)
+        castle_rows_b, castle_rows_a = _grid(res_b), _grid(res_a)
+        names = {}
+        for k, v in (suite_meta.get("cwe_names") or {}).items():
+            try:
+                names[int(k)] = v
+            except (TypeError, ValueError):
+                pass
+        castle_meta = {
+            "cwe_names": names,
+            "out_of_scope": suite_meta.get("out_of_scope_categories") or [],
+        }
 
     errors, warnings = check_compatible(manifest_before, manifest_after)
     return DiffReport(
         castle_before=castle_b,
         castle_after=castle_a,
+        castle_rows_before=castle_rows_b,
+        castle_rows_after=castle_rows_a,
+        castle_meta=castle_meta,
         score_before=score_before,
         score_after=score_after,
         suite_before=manifest_before.get("suite") or {},

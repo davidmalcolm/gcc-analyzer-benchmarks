@@ -1247,6 +1247,207 @@ class TestBenchProctorScope(unittest.TestCase):
         self.assertNotIn("null_deref", OUT_OF_SCOPE)
         self.assertEqual(len(OUT_OF_SCOPE), 10)
 
-    def test_castle_declares_nothing_out_of_scope(self):
-        from gab.suites.castle import CastleC250
-        self.assertEqual(CastleC250.out_of_scope_categories(None), [])
+    def test_castle_declares_the_injection_and_crypto_cwes(self):
+        from gab.suites.castle import OUT_OF_SCOPE_CWES, CastleC250
+        got = CastleC250.out_of_scope_categories(None)
+        self.assertEqual(got, [f"CWE-{c}" for c in OUT_OF_SCOPE_CWES])
+        for cwe in (89, 327, 798):          # SQLi, crypto, creds
+            self.assertIn(cwe, OUT_OF_SCOPE_CWES)
+        for cwe in (401, 416, 476, 835):    # memory safety: in scope
+            self.assertNotIn(cwe, OUT_OF_SCOPE_CWES)
+
+
+class TestCastleGridInCLI(CLITestCase):
+    def _castle_run(self, name="grid-run"):
+        run = write_run(
+            self.tmp / name,
+            [make_record("CASTLE-476-1", cwe=476, lines=(5,),
+                         findings=[make_finding(cwe=476, line=5)]),
+             make_record("CASTLE-476-7", cwe=476, vulnerable=False,
+                         lines=())],
+            suite_name="castle-c250")
+        m = json.loads((run / "run.json").read_text())
+        m["suite"]["adapter"] = "castle-c250"
+        (run / "run.json").write_text(json.dumps(m))
+        return run
+
+    def test_text_grid_is_opt_in(self):
+        run = self._castle_run()
+        _, plain, _ = self.gab("score", str(run))
+        self.assertNotIn("CASTLE score grid", plain)
+        _, grid, _ = self.gab("score", str(run), "--castle-grid")
+        self.assertIn("CASTLE score grid", grid)
+        self.assertIn("6/6", grid)
+        self.assertIn("2/2", grid)
+
+    def test_html_always_includes_the_grid(self):
+        _, out, _ = self.gab("score", str(self._castle_run("grid-html")),
+                             "--html")
+        self.assertIn("CASTLE score grid", out)
+        self.assertIn("background:hsl", out)
+        self.assert_valid_html(out)
+
+    def test_grid_absent_for_non_castle_suites(self):
+        run = self.tmp / "grid-plain"
+        self.gab("run", "-t", "stub", "-s", "synthetic", "-o", str(run),
+                 "--force", "-q")
+        _, out, _ = self.gab("score", str(run), "--html")
+        self.assertNotIn("CASTLE score grid", out)
+
+    def test_grid_flag_on_a_non_castle_run_says_so(self):
+        run = self.tmp / "grid-warn"
+        self.gab("run", "-t", "stub", "-s", "synthetic", "-o", str(run),
+                 "--force", "-q")
+        _, out, _ = self.gab("score", str(run), "--castle-grid")
+        self.assertIn("not a CASTLE run", out)
+
+
+class TestCastleGridScopeAndDiff(CLITestCase):
+    """Out-of-scope marking, and the grid in diff output."""
+
+    def _castle_run(self, name, findings_for_1=()):
+        run = write_run(
+            self.tmp / name,
+            [make_record("CASTLE-476-1", cwe=476, lines=(5,),
+                         findings=list(findings_for_1)),
+             make_record("CASTLE-476-7", cwe=476, vulnerable=False,
+                         lines=()),
+             make_record("CASTLE-89-1", cwe=89, lines=(5,)),
+             make_record("CASTLE-89-7", cwe=89, vulnerable=False,
+                         lines=())],
+            suite_name="castle-c250",
+            cc1_sha=name.ljust(64, "x"))
+        m = json.loads((run / "run.json").read_text())
+        m["suite"]["adapter"] = "castle-c250"
+        # CWE-89 (SQL injection) is not something -fanalyzer attempts.
+        m["suite"]["out_of_scope_categories"] = ["CWE-89"]
+        m["suite"]["cwe_names"] = {"476": "NULL Pointer Dereference"}
+        (run / "run.json").write_text(json.dumps(m))
+        return run
+
+    def test_score_grid_marks_out_of_scope_rows(self):
+        run = self._castle_run("oos-score")
+        _, out, _ = self.gab("score", str(run), "--castle-grid")
+        self.assertIn("out of scope", out)
+        self.assertIn("in scope", out)
+
+    def test_score_grid_html_tags_and_greys_them(self):
+        run = self._castle_run("oos-html")
+        _, out, _ = self.gab("score", str(run), "--html")
+        self.assertIn('class="oos"', out)
+        self.assertIn("out-of-scope rows", out)
+        self.assert_valid_html(out)
+
+    def test_cwe_names_become_hover_titles(self):
+        run = self._castle_run("oos-names")
+        _, out, _ = self.gab("score", str(run), "--html")
+        self.assertIn('title="NULL Pointer Dereference"', out)
+
+    def test_diff_html_has_a_castle_grid(self):
+        a = self._castle_run("dg-a")
+        b = self._castle_run("dg-b", findings_for_1=[
+            make_finding(cwe=476, line=5)])
+        _, out, _ = self.gab("diff", str(a), str(b), "--html")
+        self.assertIn("CASTLE score grid", out)
+        # CASTLE-476-1 went 0 -> 6, so that cell shows the transition.
+        self.assertIn("0&#8594;6/6", out)
+        self.assertIn("1 cell(s) moved", out)
+        self.assert_valid_html(out)
+
+    def test_diff_grid_greys_unchanged_cells(self):
+        a = self._castle_run("dg-same-a")
+        b = self._castle_run("dg-same-b")
+        _, out, _ = self.gab("diff", str(a), str(b), "--html", "--force")
+        self.assertIn("No cell moved", out)
+        self.assertIn("cell unchanged", out)
+
+    def test_diff_grid_absent_for_non_castle(self):
+        run_a = self.tmp / "dg-plain-a"
+        run_b = self.tmp / "dg-plain-b"
+        for r in (run_a, run_b):
+            self.gab("run", "-t", "stub", "-s", "synthetic", "-o", str(r),
+                     "--force", "-q")
+        _, out, _ = self.gab("diff", str(run_a), str(run_b), "--html",
+                             "--force")
+        self.assertNotIn("CASTLE score grid", out)
+
+
+class TestOutOfScopeIsVisuallyDistinct(CLITestCase):
+    """Scope and 'unchanged' must not share a visual channel: in a diff
+    nearly every row is unchanged, so opacity alone hides scope."""
+
+    def test_scope_uses_tint_not_opacity(self):
+        from gab.htmlout import STYLE
+        self.assertIn("tr.oos { background:", STYLE)
+        self.assertIn("tr.oos > td:first-child { border-left", STYLE)
+        # Opacity is reserved for "nothing moved here".
+        self.assertNotIn(".oos td { opacity", STYLE)
+        self.assertIn("tr.quiet td { opacity", STYLE)
+
+    def test_a_row_can_be_both_and_stay_legible(self):
+        from gab.htmlout import render_castle_diff_grid
+        from gab.castle_score import castle_score, grid
+        recs = [make_record("CASTLE-89-1", cwe=89, lines=(5,)),
+                make_record("CASTLE-89-7", cwe=89, vulnerable=False,
+                            lines=())]
+        rows = grid(castle_score(recs))
+        html = render_castle_diff_grid(rows, rows, {}, ["CWE-89"])
+        # Unchanged *and* out of scope: both classes, distinct channels.
+        self.assertIn('class="oos quiet"', html)
+
+
+class TestCastleGridInGroupedRuns(CLITestCase):
+    """The grid must survive the grouped-run code path, which renders
+    one document with a section per suite."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.group = cls.tmp / "grid-group"
+        (cls.group / "synthetic").mkdir(parents=True)
+        run_cli("--config", str(cls.config), "run", "-t", "stub", "-s",
+                "synthetic", "-o", str(cls.group / "synthetic"),
+                "--force", "-q")
+        castle = write_run(
+            cls.group / "castle-c250",
+            [make_record("CASTLE-476-1", cwe=476, lines=(5,),
+                         findings=[make_finding(cwe=476, line=5)]),
+             make_record("CASTLE-89-1", cwe=89, lines=(5,))],
+            suite_name="castle-c250")
+        m = json.loads((castle / "run.json").read_text())
+        m["suite"]["adapter"] = "castle-c250"
+        m["suite"]["out_of_scope_categories"] = ["CWE-89"]
+        (castle / "run.json").write_text(json.dumps(m))
+        (cls.group / "run.json").write_text(json.dumps({
+            "kind": "group", "schema": 1,
+            "members": [{"suite": "synthetic", "dir": "synthetic"},
+                        {"suite": "castle-c250", "dir": "castle-c250"}],
+            "toolchain": {"name": "stub", "version": "x"},
+        }))
+
+    def test_html_includes_the_grid_for_the_castle_member(self):
+        _, out, _ = self.gab("score", str(self.group), "--html")
+        self.assertEqual(out.count("CASTLE score grid"), 1)
+        # Anchors are namespaced by suite, as elsewhere in group reports.
+        self.assertIn('id="castle-c250-castle-grid"', out)
+        self.assertIn('<tr class="oos"', out)
+        self.assert_valid_html(out)
+
+    def test_text_grid_is_shown_per_suite(self):
+        _, out, _ = self.gab("score", str(self.group), "--castle-grid")
+        self.assertIn("=== castle-c250", out)
+        self.assertIn("CASTLE score grid", out)
+        self.assertIn("out of scope", out)
+
+    def test_text_grid_says_so_when_no_castle_suite(self):
+        group = self.tmp / "grid-group-none"
+        (group / "synthetic").mkdir(parents=True)
+        run_cli("--config", str(self.config), "run", "-t", "stub", "-s",
+                "synthetic", "-o", str(group / "synthetic"), "--force",
+                "-q")
+        (group / "run.json").write_text(json.dumps({
+            "kind": "group", "schema": 1,
+            "members": [{"suite": "synthetic", "dir": "synthetic"}],
+            "toolchain": {"name": "stub", "version": "x"}}))
+        _, out, _ = self.gab("score", str(group), "--castle-grid")
+        self.assertIn("no CASTLE suite", out)
