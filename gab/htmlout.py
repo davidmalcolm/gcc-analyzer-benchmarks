@@ -19,6 +19,8 @@ import re
 from datetime import datetime
 from typing import Iterable, List, Optional, Sequence
 
+from gab.scoring import category_key
+
 STYLE = """
 :root { color-scheme: light dark; }
 body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 70rem;
@@ -305,7 +307,8 @@ def _score_body(report, manifest: dict, run_dir: str, prefix: str,
         ["category", "TP", "FP", "FN", "TN", "recall", "precision"],
         [[esc(name), cc.TP, cc.FP, cc.FN, cc.TN, pct(cc.recall),
           pct(cc.precision)]
-         for name, cc in sorted(report.by_category.items())],
+         for name, cc in sorted(report.by_category.items(),
+                                key=lambda kv: category_key(kv[0]))],
         numeric=[1, 2, 3, 4, 5, 6]), "by-category")
 
     return "\n".join(parts), entries

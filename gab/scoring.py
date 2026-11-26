@@ -32,10 +32,26 @@ against.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
 
 Matcher = Callable[[dict, Sequence[int]], bool]
+
+_NUM_CHUNK = re.compile(r"(\d+)")
+
+
+def category_key(name: str):
+    """Sort key that orders embedded numbers numerically.
+
+    Category names are often CWE identifiers, and plain alphabetical
+    order puts CWE-190 before CWE-22, which reads as a mistake every
+    time.  Splitting into text and number chunks sorts them the way a
+    reader expects while leaving word-shaped categories (BenchProctor's
+    `null_deref`, `sqli`) in alphabetical order.
+    """
+    parts = _NUM_CHUNK.split(str(name))
+    return tuple((1, int(p)) if p.isdigit() else (0, p) for p in parts)
 
 
 def _primary_within(finding: dict, lines: Sequence[int], tol: int) -> bool:
@@ -209,7 +225,9 @@ class Report:
             "overall": self.overall.as_dict(),
             "category_averaged": self.macro,
             "by_category": {k: v.as_dict()
-                            for k, v in sorted(self.by_category.items())},
+                            for k, v in sorted(self.by_category.items(),
+                                               key=lambda kv:
+                                               category_key(kv[0]))},
             "excluded": [
                 {"name": v.name, "status": v.status} for v in self.excluded
             ],

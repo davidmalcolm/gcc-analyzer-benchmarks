@@ -717,7 +717,8 @@ def _score_one(args, run_dir: Path) -> int:
     if not args.no_categories:
         print(f"\n  {'category':<22} {'TP':>4} {'FP':>4} {'FN':>4} {'TN':>4}"
               f" {'recall':>8} {'prec':>8}")
-        for name, cc in sorted(report.by_category.items()):
+        for name, cc in sorted(report.by_category.items(),
+                               key=lambda kv: scoring.category_key(kv[0])):
             print(f"  {name:<22} {cc.TP:>4} {cc.FP:>4} {cc.FN:>4} {cc.TN:>4}"
                   f" {_pct(cc.recall):>8} {_pct(cc.precision):>8}")
 
@@ -1116,7 +1117,8 @@ def _collect_failures(records, matcher_name, categories, skip_categories):
         groups.setdefault(v.category or "(uncategorised)", []).append(entry)
     for entries in groups.values():
         entries.sort(key=lambda e: (e["outcome"], e["name"]))
-    return report, dict(sorted(groups.items()))
+    return report, dict(sorted(groups.items(),
+                               key=lambda kv: scoring.category_key(kv[0])))
 
 
 def cmd_failures(args) -> int:

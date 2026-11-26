@@ -337,3 +337,33 @@ class TestCastleGrid(unittest.TestCase):
         self.assertIn("5 70%", heat(-1.0))   # red hue for negative
         # Stronger result -> darker cell.
         self.assertNotEqual(heat(0.25), heat(1.0))
+
+
+class TestCategoryOrdering(unittest.TestCase):
+    """Category names are often CWE ids, where plain alphabetical order
+    puts CWE-190 before CWE-22 and reads as a bug."""
+
+    def _sorted(self, names):
+        from gab.scoring import category_key
+        return sorted(names, key=category_key)
+
+    def test_cwe_ids_sort_numerically(self):
+        self.assertEqual(
+            self._sorted(["CWE-190", "CWE-22", "CWE-843", "CWE-89"]),
+            ["CWE-22", "CWE-89", "CWE-190", "CWE-843"])
+
+    def test_word_categories_stay_alphabetical(self):
+        self.assertEqual(
+            self._sorted(["sqli", "null_deref", "buffer_overflow"]),
+            ["buffer_overflow", "null_deref", "sqli"])
+
+    def test_mixed_names_do_not_raise(self):
+        got = self._sorted(["CWE-22", "sqli", "(uncategorised)", "CWE-5"])
+        self.assertEqual(len(got), 4)
+
+    def test_report_as_dict_is_ordered(self):
+        from gab.scoring import score
+        recs = [make_record(f"t{c}", category=f"CWE-{c}", lines=(5,))
+                for c in (190, 22, 843, 89)]
+        keys = list(score(recs).as_dict()["by_category"])
+        self.assertEqual(keys, ["CWE-22", "CWE-89", "CWE-190", "CWE-843"])
