@@ -5,7 +5,7 @@
 TODO
 ====
 
-Status as of 2026-11-23.  Run, score and diff all work end to end
+Status as of 2026-11-26.  Run, score and diff all work end to end
 against BenchProctor and CASTLE on my laptop, and work well enough
 on a compile-farm machine to do (very) basic validation of candidate
 patches for GCC (some tests fail with `compile-error` due to missing
@@ -182,8 +182,36 @@ Medium-term
   multi-file test cases and `omitgood`/`omitbad` build variants, which
   the current single-file `TestCase` model does not express.
 
-* ITC suite: initial version added, but see the various FIXMEs in
-  gab/suites/itc.py
+* **The multi-file test case problem** (raised by the ITC suite; the
+  largest open design question).  `TestCase` currently conflates three
+  things that ITC pulls apart:
+
+  | concept | today | what ITC needs |
+  |---|---|---|
+  | **job** -- what the runner executes | = the test | several sources, plus `-I` for a subdir header |
+  | **test case** -- the suite's unit of grouping | = the file | a directory, e.g. 199231 |
+  | **expectation** -- one ground-truth claim | = the file's verdict | 15 CWE-1335 sites in `bit_shift.c`, plus likely-FP sites |
+
+  Proposed terminology is those three words: **job**, **test case**,
+  **expectation**.  Scoring moves from per-file to *per-expectation*
+  ("was a CWE-1335 reported at bit_shift.c:NNN").  BenchProctor and
+  CASTLE become the degenerate case -- one test case = one job = one
+  expectation -- so their numbers must not move; that is the
+  regression test for the refactor.
+
+  Worth deciding early: ITC ground truth is *already SARIF*
+  (manifest.sarif).  Modelling an expectation as a SARIF result,
+  rather than inventing our own shape, would make the ITC adapter
+  nearly trivial and should fit the other SARD suites too.
+
+  Scope warning: this touches the data model, runner, run-directory
+  layout, scoring, diff and every report, and it is a **breaking
+  change to the run format** -- old run directories will not re-score,
+  so `schema: 1` needs bumping.  Agree the model before writing code.
+
+  Until then gab/suites/itc.py makes simplifying assumptions; see its
+  FIXMEs.  It has already earned its place by finding a GCC 17
+  regression against GCC 16.
 
 * Other suites: the CASTLE paper has a handy catalog of suites (might
   be in the repo also)
