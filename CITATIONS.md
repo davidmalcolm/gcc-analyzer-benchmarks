@@ -167,3 +167,22 @@ The tools we check ourselves against
 TN 270 and a category-averaged +47.0% for system GCC over the nine
 in-scope categories.  Keeping that agreement is the best evidence we
 have that the harness measures what the suite's authors intended.
+
+
+Ideas for other suites
+----------------------
+
+* https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks
+  From SV-COMP: https://sv-comp.sosy-lab.org/
+  This embeds the Juliet testsuite, but also many other tests.
+
+* https://github.com/FormAI-Dataset
+  "FormAI Dataset is a large collection of AI-generated compilable and
+  independent C programs with vulnerability classification."
+
+* https://arxiv.org/abs/1807.04320
+  "Automated Vulnerability Detection in Source Code Using Deep Representation Learning"
+    https://osf.io/d45bw/overview
+    "The dataset consists of the source code of 1.27 million functions
+    mined from open source software, labeled by static analysis for
+    potential vulnerabilities."
