@@ -24,6 +24,9 @@ Currently supported
 MIT licensed (Copyright (c) 2025 Richard A. Dubniczky).
 https://github.com/CASTLE-Benchmark/CASTLE-Benchmark
 
+Patched version here:
+https://github.com/davidmalcolm/CASTLE-Benchmark/tree/fixes-for-gcc-analyzer
+
 Dataset version 1.2, dated 2025-03-13: 250 tests, 150 vulnerable,
 25 CWEs.
 
